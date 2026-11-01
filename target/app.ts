@@ -131,3 +131,98 @@ app.post('/sns/reset', (c) => {
   likedFeed = [];
   return c.json({ ok: true, likedFeed });
 });
+
+// ===========================================================================
+// モジュール2: XSS (クロスサイトスクリプティング) ― 蓄積型 + 反射型
+// ---------------------------------------------------------------------------
+// 実在事例: 2005年 MySpace の「Samy ワーム」(Samy Kamkar)。
+//   プロフィールの自由記述に JavaScript を仕込める蓄積型XSSを悪用し、
+//   「but most of all, samy is my hero」を他人のプロフィールへ勝手に追記 + その
+//   スクリプト自体を閲覧者のプロフィールへ複製し、約20時間で100万人超へ自己増殖した。
+//
+// 架空シナリオ (つなぐ):
+//   攻撃者「サミー(@samy)」が自分のプロフィールの『ひとこと』に <script> を仕込む。
+//   その profile を見た利用者のブラウザで script が動き、
+//     (1) 利用者として拡散投稿に「いいね」し (POST /sns/like)、
+//     (2) 同じ script を利用者自身の『ひとこと』にも複製する (POST /sns/profile)。
+//   見た人がまた増殖源になり、MySpace の Samy ワームと同じ構図で広がる。
+//
+// 脆弱点:
+//   - 蓄積型: /sns/users/:name が profile.bio を「無エスケープ」で HTML に埋め込む。
+//   - 反射型: /sns/search が ?q をそのまま結果ページに反射する。
+// ===========================================================================
+
+// --- 対策(出力時の HTML エスケープ)。これを使って埋め込めば XSS は成立しない ---
+// function escapeHtml(s: string): string {
+//   return s
+//     .replaceAll('&', '&amp;')
+//     .replaceAll('<', '&lt;')
+//     .replaceAll('>', '&gt;')
+//     .replaceAll('"', '&quot;')
+//     .replaceAll("'", '&#39;');
+// }
+// さらに Content-Security-Policy: script-src 'self' などを併用すると多層防御になる。
+
+type Profile = { handle: string; display: string; bio: string };
+const defaultProfiles = (): Record<string, Profile> => ({
+  you: { handle: 'you', display: 'あなた (@you)', bio: 'はじめまして！よろしくお願いします。' },
+  samy: {
+    handle: 'samy',
+    display: 'サミー (@samy)',
+    // 攻撃者が仕込んだ蓄積型XSSペイロード(Samyワームの再現)。
+    // 閲覧者のブラウザで動き、いいね拡散 + 自分のプロフィールへ複製して自己増殖する。
+    bio: "みんなよろしく！<img src=x onerror=\"fetch('/sns/like',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:'title=サミーは俺のヒーロー'});\">",
+  },
+});
+let profiles: Record<string, Profile> = defaultProfiles();
+
+// プロフィール表示。★ bio を無エスケープで埋め込む(蓄積型XSSのシンク)。
+app.get('/sns/users/:name', (c) => {
+  const name = c.req.param('name');
+  const p = profiles[name];
+  if (!p) return c.notFound();
+  // 脆弱: 本来は escapeHtml(p.bio) すべきところを、そのまま展開している。
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>${p.display} | つなぐ</title>
+<style>
+  body { font-family: sans-serif; padding:24px; max-width:640px; }
+  .bio { background:#f6f8fa; border:1px solid #e1e4e8; border-radius:10px; padding:14px 16px; }
+</style></head>
+<body>
+  <h1>${p.display}</h1>
+  <h2>ひとこと</h2>
+  <div class="bio">${p.bio}</div>
+  <p><a href="/sns/users/you">自分のプロフィール</a> / <a href="/sns">タイムライン</a></p>
+</body></html>`);
+});
+
+// 『ひとこと』の更新(ログイン中の本人 = you)。蓄積型XSSの投入口。
+app.post('/sns/profile', async (c) => {
+  const body = await c.req.parseBody();
+  const bio = typeof body.bio === 'string' ? body.bio : '';
+  profiles.you.bio = bio;
+  return c.json({ ok: true, bio });
+});
+
+// 検索。★ ?q をそのまま結果ページへ反射する(反射型XSSのシンク)。
+app.get('/sns/search', (c) => {
+  const q = c.req.query('q') ?? '';
+  // 脆弱: 本来は escapeHtml(q) すべきところを、そのまま展開している。
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>「${q}」の検索結果 | つなぐ</title>
+<style>body { font-family: sans-serif; padding:24px; max-width:640px; }</style></head>
+<body>
+  <h1>検索結果</h1>
+  <p>「${q}」に一致する投稿は見つかりませんでした。</p>
+  <form method="GET" action="/sns/search">
+    <input name="q" value="${q}" placeholder="キーワード">
+    <button type="submit">検索</button>
+  </form>
+</body></html>`);
+});
+
+// XSSシナリオのリセット(プロフィールを初期状態へ)。
+app.post('/sns/profile/reset', (c) => {
+  profiles = defaultProfiles();
+  return c.json({ ok: true });
+});

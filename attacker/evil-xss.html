@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>つなぐ プロフィール診断メーカー</title>
+  <style>
+    body { font-family: sans-serif; padding:40px 16px; background:#111; color:#eee; margin:0; text-align:center; }
+    h1 { color:#ff5252; }
+    .box { max-width:620px; margin:20px auto; text-align:left; }
+    .demo { background:#000; border:2px solid #333; border-radius:10px; margin:18px auto; max-width:560px; overflow:hidden; }
+    iframe.view { width:100%; height:240px; border:0; background:#fff; display:block; }
+    .reflect { display:block; margin:14px auto; max-width:560px; background:#1e1e1e; border:1px solid #444; border-radius:8px; padding:12px 14px; color:#9cdcfe; font-size:13px; word-break:break-all; text-align:left; }
+    .reflect a { color:#4fc3f7; }
+
+    .panel { position: fixed; top:12px; right:12px; z-index:10; background:#fff; color:#333; border:1px solid #ccc; border-radius:10px; padding:12px 14px; text-align:left; font-size:13px; width:260px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    .panel h2 { font-size:13px; margin:0 0 8px; color:#555; }
+    .panel label { display:flex; align-items:center; gap:6px; margin:6px 0; cursor:pointer; }
+    .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
+    .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
+    .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; }
+    .status.vuln { background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
+    code { background:#0a140e; padding:1px 5px; border-radius:4px; color:#9be8b4; }
+
+    .intent, .defense { display:none; max-width:560px; margin:20px auto 0; text-align:left; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; }
+    .intent { background:#1e1e1e; border:1px solid #ff5252; color:#eee; }
+    .defense { background:#12241a; border:1px solid #2ecc71; color:#eee; }
+    body.show-intent .intent { display:block; }
+    body.defended .defense { display:block; }
+    .intent h3 { margin:0 0 8px; color:#ff5252; font-size:14px; }
+    .defense h3 { margin:0 0 8px; color:#2ecc71; font-size:14px; }
+    .intent b { color:#ffd54f; }
+    .intent ol { margin:0; padding-left:1.2em; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>🔎 学習用コントロール</h2>
+    <label>
+      <input type="checkbox" id="toggleIntent">
+      攻撃者の狙い(シナリオ)を表示
+    </label>
+    <div class="hint">蓄積型XSSが自己増殖する Samy ワームの筋書きを表示します。</div>
+    <hr>
+    <label>
+      <input type="checkbox" id="toggleDefense">
+      🛡 対策を有効化（出力エスケープ）
+    </label>
+    <div class="hint">標的が <code>escapeHtml()</code> で出力した状態を疑似再現します。script が文字列として表示され、実行されません。</div>
+    <hr>
+    状態: <span id="statusBadge" class="status vuln">脆弱（スクリプト実行）</span>
+  </div>
+
+  <h1>🧪 つなぐ プロフィール診断メーカー</h1>
+  <p>人気ユーザーの「ひとこと」を覗くだけで、あなたの相性がわかる！（おとりページ）</p>
+
+  <div class="box">
+    <p>👀 いま話題のユーザー <b>サミー(@samy)</b> のプロフィールを表示します。</p>
+  </div>
+
+  <!-- 蓄積型XSS: 標的の profile を iframe で表示 → bio に仕込まれた script がブラウザで動く。
+       実行されると、閲覧者として「いいね」拡散 + 自分の bio へ複製(=自己増殖/Samyワーム)。 -->
+  <div class="demo">
+    <iframe class="view" id="view" title="つなぐ プロフィール"
+      src="http://localhost:8080/sns/users/samy"></iframe>
+  </div>
+
+  <!-- 反射型XSS: 検索URLに script を混ぜたリンク。踏むと結果ページで即実行される。 -->
+  <div class="reflect">
+    反射型のおまけ: 次の「検索リンク」を踏ませるだけでも script が動きます。<br>
+    <a id="reflectLink" target="_blank" rel="noopener"
+       href="http://localhost:8080/sns/search?q=%3Cscript%3Ealert('XSS:cookie='%2Bdocument.cookie)%3C/script%3E">
+      http://localhost:8080/sns/search?q=&lt;script&gt;alert(...)&lt;/script&gt;
+    </a>
+  </div>
+
+  <div class="intent">
+    <h3>🎯 攻撃者の狙い（蓄積型XSS / Samy ワーム 2005）</h3>
+    <ol>
+      <li>攻撃者サミーが、自分の<b>プロフィールのひとことに &lt;script&gt; を仕込む</b>（つなぐが入力を無エスケープで保存・表示するため成立）。</li>
+      <li>その profile を見た利用者のブラウザで script が動き、<b>利用者本人として拡散投稿に「いいね」</b>してしまう。</li>
+      <li>さらに script は<b>利用者自身のひとことにも同じ script を複製</b>する。</li>
+      <li>その利用者の profile を見た別の人へ…と<b>自己増殖</b>し、MySpace の Samy ワームと同じ構図で一気に広がる。</li>
+      <li>応用すると <code>document.cookie</code> 窃取やセッション乗っ取り、ページ改ざんにも使える。</li>
+    </ol>
+  </div>
+
+  <div class="defense">
+    <h3>🛡 対策した場合（出力エスケープ / CSP）</h3>
+    <p>標的が出力時に <code>&lt;</code> などを <code>&amp;lt;</code> へ<b>エスケープ</b>すれば、
+       ひとことや検索語は<b>ただの文字列</b>として表示され、script は実行されません。</p>
+    <p style="margin:10px 0 0"><code>Content-Security-Policy: script-src 'self'</code> を併用すると、
+       インラインスクリプトや外部送信をさらに制限できます（多層防御）。</p>
+  </div>
+
+  <p style="color:#888;font-size:13px;margin-top:30px">
+    ※ これは教育用デモです。右上のトグルで狙いと対策後の挙動を切り替えられます。
+  </p>
+
+  <script>
+    const intent = document.getElementById('toggleIntent');
+    const defense = document.getElementById('toggleDefense');
+    const badge = document.getElementById('statusBadge');
+    const view = document.getElementById('view');
+    const reflectLink = document.getElementById('reflectLink');
+
+    intent.addEventListener('change', () => {
+      document.body.classList.toggle('show-intent', intent.checked);
+    });
+
+    defense.addEventListener('change', () => {
+      const on = defense.checked;
+      document.body.classList.toggle('defended', on);
+      badge.textContent = on ? '対策済み（文字列として表示）' : '脆弱（スクリプト実行）';
+      badge.className = 'status ' + (on ? 'safe' : 'vuln');
+      // 対策ONの疑似再現: iframe を外し、エスケープ済みで「無害化された」見た目を示す。
+      if (on) {
+        view.removeAttribute('src');
+        view.srcdoc =
+          '<body style="font-family:sans-serif;padding:16px;color:#333">' +
+          '<h3>サミー (@samy)</h3><h4>ひとこと</h4>' +
+          '<div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:10px;padding:14px">' +
+          'みんなよろしく！&lt;img src=x onerror=...&gt;（エスケープ済み＝ただの文字。実行されない）' +
+          '</div></body>';
+        reflectLink.style.pointerEvents = 'none';
+        reflectLink.style.opacity = '.5';
+      } else {
+        view.removeAttribute('srcdoc');
+        view.src = 'http://localhost:8080/sns/users/samy';
+        reflectLink.style.pointerEvents = '';
+        reflectLink.style.opacity = '';
+      }
+    });
+  </script>
+</body>
+</html>
