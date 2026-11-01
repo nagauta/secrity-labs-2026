@@ -13,6 +13,7 @@
 //   返さないため、任意の外部サイトが <iframe> で透明に重ねられてしまう。
 // ============================================================================
 
+import Database from 'better-sqlite3';
 import { Hono } from 'hono';
 
 export const app = new Hono();
@@ -225,4 +226,77 @@ app.get('/sns/search', (c) => {
 app.post('/sns/profile/reset', (c) => {
   profiles = defaultProfiles();
   return c.json({ ok: true });
+});
+
+// ===========================================================================
+// モジュール3: SQLインジェクション ― ログインバイパス + UNION によるデータ窃取
+// ---------------------------------------------------------------------------
+// 実在事例: 2011年 Sony Pictures の情報漏えい(LulzSec)。SQLインジェクションで
+//   会員DBが抜かれ、約100万件のアカウントが流出。しかもパスワードが平文保存で、
+//   そのまま使える状態だった、と報じられた。古典の `' OR '1'='1` ログインバイパスも
+//   同じ原理(入力をSQL文字列にそのまま連結する)で成立する。
+//
+// 架空シナリオ (つなぐ):
+//   会員ログインと会員検索が、入力値を SQL にそのまま文字列連結している。
+//     (1) ログイン: username に `admin'--` を入れるとパスワード照合を無効化して成りすまし。
+//     (2) 会員検索: `' UNION SELECT ... --` で平文パスワードや秘密メモを丸ごと吸い出す。
+//
+// 脆弱点: プレースホルダ(パラメータバインド)を使わず、`'${input}'` と連結している。
+// ===========================================================================
+
+// やられ役の会員DB(メモリ上の SQLite)。※ パスワード平文保存も「やられ」仕様。
+const db = new Database(':memory:');
+db.exec(`
+  CREATE TABLE members (
+    id       INTEGER PRIMARY KEY,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    email    TEXT NOT NULL,
+    secret   TEXT NOT NULL
+  );
+  INSERT INTO members (username, password, email, secret) VALUES
+    ('you',   'password123', 'you@tsunagu.example',   '下書き: 退職願'),
+    ('samy',  'hero2005',    'samy@tsunagu.example',  'DM下書き'),
+    ('admin', 'S0ny-pwn3d!', 'admin@tsunagu.example', '管理者用バックアップ鍵: ABCD-1234');
+`);
+
+// --- 対策(プレースホルダ/パラメータバインド)。これなら注入は成立しない ---
+//   const row = db.prepare(
+//     'SELECT * FROM members WHERE username = ? AND password = ?',
+//   ).get(username, password);
+//   会員検索も db.prepare('... WHERE username = ?').all(name) とする。
+
+type Member = { id: number; username: string; password: string; email: string; secret: string };
+
+// 会員ログイン。★ 入力を SQL にそのまま連結(脆弱)。
+//   username = admin'--  → パスワード条件がコメントアウトされ成りすまし。
+//   username = ' OR '1'='1  → 全件ヒットの先頭として最初のユーザーでログイン。
+app.post('/sns/login', async (c) => {
+  const body = await c.req.parseBody();
+  const username = typeof body.username === 'string' ? body.username : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  const sql = `SELECT * FROM members WHERE username = '${username}' AND password = '${password}'`;
+  try {
+    const row = db.prepare(sql).get() as Member | undefined;
+    if (row) {
+      return c.json({ ok: true, loggedInAs: row.username, sql });
+    }
+    return c.json({ ok: false, sql }, 401);
+  } catch (e) {
+    // 注入で構文エラーになった場合でも、学習用に実行SQLとエラーを見せる。
+    return c.json({ ok: false, sql, error: String(e) }, 400);
+  }
+});
+
+// 会員検索。★ ?name を SQL にそのまま連結(脆弱)。UNION でカラムを揃えて窃取できる。
+//   name = ' UNION SELECT id, username || ':' || password, email, secret FROM members --
+app.get('/sns/members', (c) => {
+  const name = c.req.query('name') ?? '';
+  const sql = `SELECT id, username, email, secret FROM members WHERE username = '${name}'`;
+  try {
+    const rows = db.prepare(sql).all();
+    return c.json({ ok: true, sql, rows });
+  } catch (e) {
+    return c.json({ ok: false, sql, error: String(e) }, 400);
+  }
 });
