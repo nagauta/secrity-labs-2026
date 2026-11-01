@@ -1,8 +1,8 @@
 // ============================================================================
-// attacker/serve.ts  ―  おとりページ配信サーバ (TypeScript / 外部依存なし)
+// attacker/serve.ts  ―  ラボ配信サーバ (TypeScript / 外部依存なし)
 // ----------------------------------------------------------------------------
-// evil.html を静的配信するだけの最小サーバ。Node標準モジュール + tsx のみ。
-// ※ 教育目的。ローカル隔離ラボ内でのみ使用すること。
+// ラボのシェル(index.html)と各攻撃デモの .html を静的配信する最小サーバ。
+// Node標準モジュール + tsx のみ。※ 教育目的。ローカル隔離ラボ内でのみ使用。
 // ============================================================================
 
 import { createServer } from 'node:http';
@@ -13,17 +13,24 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const port = 9090;
 
-// 配信するおとりページ。ライクジャッキング(架空SNS)シナリオのみ。
-//   どのパスでも evil-sns.html を返す単純構成。
-const server = createServer(async (_req, res) => {
+// 同ディレクトリの .html だけを配信する。新しい攻撃デモは .html を置くだけで増やせる。
+//   "/" は index.html(サイドバー付きシェル)。パストラバーサルはファイル名検査で防ぐ。
+const server = createServer(async (req, res) => {
   try {
-    const html = await readFile(join(__dirname, 'evil-sns.html'));
+    const path = (req.url ?? '/').split('?')[0];
+    const name = path === '/' ? 'index.html' : path.replace(/^\/+/, '');
+    // 許可するのは「英数字・ハイフン・アンダースコアの .html」単一ファイル名のみ。
+    if (!/^[A-Za-z0-9_-]+\.html$/.test(name)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('not found');
+      return;
+    }
+    const html = await readFile(join(__dirname, name));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('server error: ' + message);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('not found');
   }
 });
 
