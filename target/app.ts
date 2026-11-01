@@ -392,3 +392,56 @@ app.get('/sns/files', async (c) => {
     return c.json({ ok: false, requested: name, resolved: target, error: 'not found' }, 404);
   }
 });
+
+// ===========================================================================
+// モジュール6: CSRF (クロスサイトリクエストフォージェリ) ― メールアドレス変更
+// ---------------------------------------------------------------------------
+// 実在事例: 2006年 Netflix の CSRF。ログイン中の利用者が攻撃者ページを開くだけで、
+//   本人の意思と無関係に「配送先住所の変更」「レンタル希望リストへの追加」などが
+//   勝手に実行された。状態を変える操作に CSRF 対策(トークン等)が無いために成立する。
+//
+// 架空シナリオ (つなぐ):
+//   アカウントのメールアドレス変更が、ログイン状態だけを頼りに POST を受け付ける。
+//   CSRFトークンも Origin/Referer 検査も無いため、攻撃者ページが用意した
+//   自動送信フォームで「ログイン中の本人」のメールを攻撃者のものに書き換えられる。
+//   メールを奪えればパスワード再設定からアカウント乗っ取りに繋がる。
+//
+// 脆弱点: 状態変更 POST に CSRF 対策(同期トークン / Origin 検査 / SameSite)が一切無い。
+// ===========================================================================
+
+// ログイン中ユーザーのアカウント状態(DB代わりのメモリ)。
+let accountEmail = 'you@tsunagu.example';
+
+// --- 対策(CSRFトークン / Origin 検査)。これなら他サイトからの偽造リクエストを弾ける ---
+//   // 1) フォーム表示時に発行した同期トークンを照合する(値が一致しなければ拒否)。
+//   const token = (await c.req.parseBody()).csrf_token;
+//   if (token !== c.get('sessionCsrfToken')) return c.json({ ok:false, error:'bad csrf token' }, 403);
+//   // 2) もしくは Origin/Referer が自分のサイトかを検査する。
+//   const origin = c.req.header('origin');
+//   if (origin && new URL(origin).host !== 'localhost:8080') return c.json({ ok:false }, 403);
+//   // 3) 併せて Cookie を SameSite=Lax/Strict にすると多層防御になる。
+
+// アカウント設定の表示(現在のメールアドレス)。
+app.get('/account', (c) => {
+  return c.json({ loggedInAs: 'you', email: accountEmail });
+});
+
+// メールアドレス変更。★ CSRF トークンも Origin 検査も無い(脆弱)。
+//   他サイトの自動送信フォームからでも、ログイン中の本人として変更が通ってしまう。
+app.post('/account/email', async (c) => {
+  const body = await c.req.parseBody();
+  const email = typeof body.email === 'string' ? body.email : '';
+  accountEmail = email;
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>メール変更完了</title></head>
+<body style="font-family:sans-serif;padding:16px">
+  <p>✅ 登録メールアドレスを <strong>${email}</strong> に変更しました。</p>
+  <p><a href="/account">アカウント設定</a></p>
+</body></html>`);
+});
+
+// CSRFシナリオのリセット。
+app.post('/account/reset', (c) => {
+  accountEmail = 'you@tsunagu.example';
+  return c.json({ ok: true, email: accountEmail });
+});
