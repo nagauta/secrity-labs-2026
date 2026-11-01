@@ -20,7 +20,9 @@ describe('パストラバーサル (/sns/files)', () => {
 
   it('../ を重ねると公開ディレクトリ外の /etc/hostname が読める(脆弱性)', async () => {
     const expected = readFileSync('/etc/hostname', 'utf8').trim();
-    const res = await app.request('/sns/files?name=../../../../../../etc/hostname');
+    // `../` はルートで頭打ちになる(それ以上は無視される)ので、作業ディレクトリの
+    // 深さに依存しないよう十分な数を重ねて確実にルートまで遡る。
+    const res = await app.request(`/sns/files?name=${'../'.repeat(12)}etc/hostname`);
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain(expected);
