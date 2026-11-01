@@ -5,10 +5,10 @@
 // Node標準モジュール + tsx のみ。※ 教育目的。ローカル隔離ラボ内でのみ使用。
 // ============================================================================
 
-import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const port = 9090;

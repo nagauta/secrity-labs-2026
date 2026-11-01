@@ -1,0 +1,17 @@
+{
+  "name": "secrity-labs-2026",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "セキュリティ学習ラボ (教育用・ローカル隔離) - lint/format/test のルート設定",
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "ci:lint": "biome ci .",
+    "test": "npm --prefix target test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4"
+  }
+}

