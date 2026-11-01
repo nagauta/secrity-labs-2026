@@ -24,9 +24,19 @@ IPA「安全なウェブサイトの作り方」で解説される主要な脆�
 
 ## 4. 実装順（決定事項）
 
-1. **クリックジャッキング（ライクジャッキング）** ← 実装済み
-   - 架空SNS「つなぐ」の「いいね」ボタンを透明で重ねて乗っ取る（`/sns` + `evil-sns.html`）
-2. 以降は追って: XSS / SQLインジェクション / OSコマンドインジェクション / パストラバーサル / CSRF / 認可制御の欠落
+いずれも実在事例を名指しで引き、そこから架空SNS「つなぐ」のシナリオを作る方針。
+
+0. **CI / Lint / テスト基盤** ← 実装済み
+   - GitHub Actions（`.github/workflows/ci.yml`）で Biome（lint/format）と Vitest を実行。
+   - 各モジュールは Vitest で「脆弱であること」を固定し、テストが通ったらマージする。
+1. **クリックジャッキング（ライクジャッキング）** ← 実装済み（Facebook ライクジャッキング 2010）
+   - 「いいね」ボタンを透明で重ねて乗っ取る（`/sns/widget` + `evil-sns.html`）
+2. **XSS** ← 実装済み（MySpace Samy ワーム 2005）: `/sns/users/:name`・`/sns/search` + `evil-xss.html`
+3. **SQLインジェクション** ← 実装済み（Sony Pictures 2011）: `/sns/login`・`/sns/members` + `evil-sqli.html`
+4. **OSコマンドインジェクション** ← 実装済み（Shellshock 2014）: `/admin/net/ping` + `evil-oscmd.html`
+5. **パストラバーサル** ← 実装済み（Apache CVE-2021-41773）: `/sns/files` + `evil-pathtrav.html`
+6. **CSRF** ← 実装済み（Netflix 2006）: `/account/email` + `evil-csrf.html`
+7. **認可制御の欠落（IDOR/BOLA）** ← 実装済み（First American Financial 2019）: `/api/messages/:id` + `evil-authz.html`
 
 ## 5. モジュール1: クリックジャッキング（ライクジャッキング）
 

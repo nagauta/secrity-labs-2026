@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>つなぐ DMビューア（検証ツール）</title>
+  <style>
+    body { font-family: sans-serif; padding:40px 16px; background:#111; color:#eee; margin:0; }
+    h1 { color:#ff5252; text-align:center; }
+    .wrap { max-width:660px; margin:0 auto; }
+    .card { background:#1b1b1b; border:1px solid #333; border-radius:10px; padding:18px 20px; margin:16px 0; }
+    .card h3 { margin:0 0 10px; font-size:15px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    input { padding:8px 10px; border-radius:6px; border:1px solid #444; background:#0d0d0d; color:#eee; font-family:monospace; }
+    button { background:#ff5252; color:#fff; border:none; border-radius:6px; padding:8px 14px; font-weight:bold; cursor:pointer; }
+    code { background:#0a140e; padding:1px 5px; border-radius:4px; color:#9be8b4; font-size:12px; }
+    pre { background:#000; border:1px solid #333; border-radius:8px; padding:12px; overflow:auto; font-size:12px; color:#9be8b4; white-space:pre-wrap; word-break:break-all; max-height:280px; }
+    .leak { color:#ff8a80; }
+
+    .panel { position: fixed; top:12px; right:12px; z-index:10; background:#fff; color:#333; border:1px solid #ccc; border-radius:10px; padding:12px 14px; text-align:left; font-size:13px; width:260px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    .panel h2 { font-size:13px; margin:0 0 8px; color:#555; }
+    .panel label { display:flex; align-items:center; gap:6px; margin:6px 0; cursor:pointer; color:#333; }
+    .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
+    .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
+    .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; background:#ffe5e5; color:#c0392b; }
+
+    .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px 0; }
+    .intent { background:#1e1e1e; border:1px solid #ff5252; }
+    .defense { background:#12241a; border:1px solid #2ecc71; }
+    body.show-intent .intent { display:block; }
+    body.show-defense .defense { display:block; }
+    .intent h3 { margin:0 0 8px; color:#ff5252; font-size:14px; }
+    .defense h3 { margin:0 0 8px; color:#2ecc71; font-size:14px; }
+    .intent b { color:#ffd54f; }
+    .intent ol { margin:0; padding-left:1.2em; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>🔎 学習用コントロール</h2>
+    <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <div class="hint">連番IDを変えるだけで他人のDMが読めます。</div>
+    <hr>
+    状態: <span class="status">脆弱（所有者チェック無し）</span>
+  </div>
+
+  <div class="wrap">
+    <h1>📬 つなぐ DMビューア</h1>
+    <p style="text-align:center;color:#aaa">
+      ログイン中ユーザー <code>you</code> として DM を取得します（<code>X-User: you</code>）。
+    </p>
+
+    <div class="card">
+      <h3>① 単体取得（IDを変えてみる）</h3>
+      <div class="row">
+        <span>/api/messages/</span>
+        <input id="id" value="2" style="width:70px">
+        <button id="fetchOne">取得</button>
+      </div>
+      <p style="font-size:12px;color:#888;margin:6px 0 0">本来 <code>you</code> の DM は id=1,4 だけ。id=2,3 は他人のものだが…？</p>
+      <pre id="one" hidden></pre>
+    </div>
+
+    <div class="card">
+      <h3>② 連番の総当たりで全DMを収集</h3>
+      <button id="enumerate">id=1..8 を一気に取得</button>
+      <pre id="all" hidden></pre>
+    </div>
+
+    <div class="intent">
+      <h3>🎯 攻撃者の狙い（認可制御の欠落 / IDOR・BOLA / First American 2019）</h3>
+      <ol>
+        <li>DM が<b>連番ID</b>で取得でき、取得時に<b>「本人のものか」を確認していない</b>と気づく。</li>
+        <li>自分のIDの前後を<b>1,2,3…と総当たり</b>して、他人の非公開DMを次々に読む。</li>
+        <li>口座番号・一時パスワード・個人情報など、<b>見えてはいけない情報を大量に収集</b>する。</li>
+        <li>First American では同じ構図で、約8.85億件の取引書類が誰でも閲覧できる状態だった。</li>
+      </ol>
+    </div>
+
+    <div class="defense">
+      <h3>🛡 対策した場合（所有者チェック）</h3>
+      <p>個別取得でも <code>msg.owner === ログイン中ユーザー</code> を必ず確認し、
+         他人のものなら <code>403/404</code> で拒否します。「本人のリソースか」を
+         <b>サーバ側で毎回検証</b>するのが根本対策です（<code>app.ts</code> のコメント参照）。
+         推測しにくいID（UUID 等）は補助にはなりますが、認可チェックの代わりにはなりません。</p>
+    </div>
+  </div>
+
+  <script>
+    const intent = document.getElementById('toggleIntent');
+    const defense = document.getElementById('toggleDefense');
+    intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
+    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+
+    const base = 'http://localhost:8080/api/messages';
+    const opts = { headers: { 'X-User': 'you' } };
+
+    document.getElementById('fetchOne').addEventListener('click', async () => {
+      const one = document.getElementById('one');
+      one.hidden = false;
+      const id = document.getElementById('id').value;
+      try {
+        const res = await fetch(base + '/' + encodeURIComponent(id), opts);
+        const json = await res.json();
+        const m = json.message;
+        const mine = m && m.owner === 'you';
+        one.innerHTML = 'GET /api/messages/' + id + '  (X-User: you)\n\n' +
+          (m ? (mine ? '' : '<span class="leak">⚠ 他人(' + m.owner + ')のDMが読めた！</span>\n') +
+               JSON.stringify(json, null, 2) : JSON.stringify(json));
+      } catch (e) { one.textContent = '失敗: ' + e; }
+    });
+
+    document.getElementById('enumerate').addEventListener('click', async () => {
+      const all = document.getElementById('all');
+      all.hidden = false;
+      all.textContent = '収集中…';
+      const lines = [];
+      for (let id = 1; id <= 8; id++) {
+        try {
+          const res = await fetch(base + '/' + id, opts);
+          if (res.status !== 200) { lines.push(id + ': (なし)'); continue; }
+          const { message: m } = await res.json();
+          const tag = m.owner === 'you' ? '自分' : '⚠他人(' + m.owner + ')';
+          lines.push(id + ' [' + tag + '] ' + m.body);
+        } catch (e) { lines.push(id + ': 失敗 ' + e); }
+      }
+      all.textContent = lines.join('\n');
+    });
+  </script>
+</body>
+</html>
