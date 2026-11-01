@@ -1,0 +1,45 @@
+name: CI
+
+# セキュリティ学習ラボの CI。
+#   - lint : Biome で lint / format を検査(リポジトリ全体)
+#   - test : target(Hono製やられ役アプリ)の Vitest を実行
+# push と pull_request の両方で走らせる。
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Biome (lint / format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install root dev deps (Biome)
+        run: npm install --no-save @biomejs/biome@1.9.4
+      - name: Biome CI check
+        run: npx biome ci .
+
+  test:
+    name: Vitest (target)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install target deps
+        run: npm install
+      - name: Run tests
+        run: npm test

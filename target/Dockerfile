@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 
-COPY tsconfig.json server.ts ./
+COPY tsconfig.json server.ts app.ts ./
 
 EXPOSE 8080
 CMD ["npm", "start"]
