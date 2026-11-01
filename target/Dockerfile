@@ -2,6 +2,11 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# ネットワーク診断(ping)ツールのデモ用に iputils-ping を入れておく
+# (OSコマンドインジェクションのモジュールで使用)。
+RUN apt-get update && apt-get install -y --no-install-recommends iputils-ping \
+  && rm -rf /var/lib/apt/lists/*
+
 # better-sqlite3(ネイティブモジュール)のプリビルドバイナリが glibc 前提のため、
 # alpine(musl)ではなく slim(Debian/glibc)を使う。これでビルド工具なしで入る。
 
