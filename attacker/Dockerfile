@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 
-COPY tsconfig.json serve.ts evil.html ./
+COPY tsconfig.json serve.ts evil-sns.html ./
 
 EXPOSE 9090
 CMD ["npm", "start"]

@@ -9,7 +9,7 @@
     .player {
       position: relative; width: 480px; height: 270px; margin: 24px auto;
       background:#000; border:2px solid #333; border-radius:10px;
-      display:flex; align-items:center; justify-content:center;
+      display:flex; align-items:center; justify-content:center; overflow:hidden;
     }
     /* おとりの「▶ 再生する」ボタン (利用者に見えている層) */
     .play {
@@ -37,15 +37,55 @@
       background: #fff;
     }
 
+    /* 対策ON時に表示する「ブラウザがフレーム表示を拒否した」プレースホルダ。
+       実際の X-Frame-Options / CSP では iframe が空白になり、クリックも奪えない。 */
+    .blocked {
+      position: absolute; top: 46px; left: 131px; width: 360px; height: 150px;
+      z-index: 2; display: none;
+      background: repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 10px,#242424 10px,#242424 20px);
+      border: 1px dashed #888; border-radius: 6px; color:#bbb;
+      font-size: 12px; line-height:1.5; padding: 10px; box-sizing:border-box;
+      align-items: center; justify-content: center; text-align:center;
+    }
+    body.defended .blocked { display: flex; }
+
+    /* 盗んだクリックの直後に表示する「ネコ動画」(外部依存なしのCSSアニメ) */
+    .video {
+      position: absolute; inset: 0; display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      background: radial-gradient(circle at 50% 35%, #2b3a55, #0b1222);
+      color:#fff;
+    }
+    .video.playing { display: flex; }
+    .cat { font-size: 84px; line-height:1; animation: hop .9s ease-in-out infinite; }
+    @keyframes hop {
+      0%,100% { transform: translateY(0) rotate(-3deg); }
+      50%     { transform: translateY(-22px) rotate(3deg); }
+    }
+    .yarn { position:absolute; bottom:70px; font-size:30px; animation: roll 2.4s linear infinite; }
+    @keyframes roll {
+      0%   { left:10%;  transform: rotate(0deg); }
+      100% { left:85%;  transform: rotate(720deg); }
+    }
+    .vcap { margin-top:14px; font-size:14px; color:#dfe6f3; }
+    .vbar { position:absolute; left:0; right:0; bottom:0; height:6px; background:#ffffff22; }
+    .vbar > i { display:block; height:100%; width:0; background:#ff5252; animation: prog 12s linear forwards; }
+    @keyframes prog { from { width:0; } to { width:100%; } }
+
     .panel {
       position: fixed; top: 12px; right: 12px; z-index: 10;
       background:#fff; color:#333; border:1px solid #ccc; border-radius:10px;
-      padding:12px 14px; text-align:left; font-size:13px; width:240px;
+      padding:12px 14px; text-align:left; font-size:13px; width:250px;
       box-shadow:0 2px 8px rgba(0,0,0,.3);
     }
     .panel h2 { font-size:13px; margin:0 0 8px; color:#555; }
     .panel label { display:flex; align-items:center; gap:6px; margin:6px 0; cursor:pointer; }
-    .panel .hint { color:#888; font-size:11px; margin-top:8px; line-height:1.4; }
+    .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
+    .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
+    /* 現在の状態バッジ: 脆弱 / 対策済み */
+    .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; }
+    .status.vuln { background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
 
     /* 攻撃者の狙い(シナリオ解説)。オーバーレイ表示時だけ出る学習用の注釈。 */
     .intent {
@@ -58,10 +98,21 @@
     .intent h3 { margin:0 0 8px; color:#ff5252; font-size:14px; }
     .intent ol { margin:0; padding-left:1.2em; }
     .intent b { color:#ffd54f; }
+
+    /* 対策の解説。対策ONのときだけ出る。 */
+    .defense {
+      display: none;
+      max-width: 560px; margin: 20px auto 0; text-align:left;
+      background:#12241a; border:1px solid #2ecc71; border-radius:10px;
+      padding:16px 18px; color:#eee; font-size:13px; line-height:1.7;
+    }
+    body.defended .defense { display:block; }
+    .defense h3 { margin:0 0 8px; color:#2ecc71; font-size:14px; }
+    .defense code { background:#0a140e; padding:1px 5px; border-radius:4px; color:#9be8b4; }
   </style>
 </head>
 <body>
-  <!-- 学習用パネル: オーバーレイの可視化トグル -->
+  <!-- 学習用パネル -->
   <div class="panel">
     <h2>🔎 学習用コントロール</h2>
     <label>
@@ -72,11 +123,18 @@
       透明度
       <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.9" style="flex:1">
     </label>
+    <div class="hint">透明で重ねた「いいね」と攻撃者の狙いを表示します。</div>
+    <hr>
+    <label>
+      <input type="checkbox" id="toggleDefense">
+      🛡 対策を有効化（フレーム化を拒否）
+    </label>
     <div class="hint">
-      チェックを入れると、▶再生ボタンの上に透明で重ねた
-      「👍 いいね！」が見えます。透明に戻して再生を押すと、
-      実際には SNS「つなぐ」で拡散投稿にいいねしてしまいます。
+      標的が <code>X-Frame-Options: DENY</code> を返した状態を再現します。
+      いいねボタンが埋め込めなくなり、再生を押しても乗っ取られません。
     </div>
+    <hr>
+    状態: <span id="statusBadge" class="status vuln">脆弱（攻撃成立）</span>
   </div>
 
   <h1>🔥 衝撃映像！たった3日で100万回再生</h1>
@@ -86,9 +144,22 @@
     <!-- 利用者が「押したつもり」になる、おとりの再生ボタン -->
     <button class="play">▶ 再生する</button>
 
-    <!-- 重ねた標的SNSの「いいね」ウィジェット。クリックは実際にはこちらへ届く。
-         title には拡散させたい投稿(餌)を入れる。 -->
-    <iframe class="overlay"
+    <!-- 盗んだクリックの直後に再生される「ネコ動画」(CSSアニメ) -->
+    <div class="video" id="video">
+      <div class="cat">🐈</div>
+      <div class="yarn">🧶</div>
+      <div class="vcap">🐱 かわいいネコ動画 — 再生中…</div>
+      <div class="vbar"><i></i></div>
+    </div>
+
+    <!-- 対策ON時: ブラウザがフレーム表示を拒否した様子 -->
+    <div class="blocked" id="blocked">
+      ⛔ http://localhost:8080 はフレーム内表示を拒否しました<br>
+      (X-Frame-Options: DENY / CSP frame-ancestors)
+    </div>
+
+    <!-- 重ねた標的SNSの「いいね」ウィジェット。クリックは実際にはこちらへ届く。 -->
+    <iframe class="overlay" id="overlay"
       src="http://localhost:8080/sns/widget?title=%E3%80%90%E6%8B%A1%E6%95%A3%E4%B8%AD%E3%80%91%E7%B5%B6%E5%AF%BE%E8%A6%8B%E3%81%A6%EF%BC%81%E8%A1%9D%E6%92%83%E6%98%A0%E5%83%8F%20bit.ly%2Fxxxx"></iframe>
   </div>
 
@@ -99,28 +170,103 @@
       <li>「衝撃映像」という餌で、利用者に <b>▶再生する</b> を押させたい。</li>
       <li>その再生ボタンの上に、SNS『つなぐ』の <b>いいねボタンを透明で重ねて</b>いる。</li>
       <li>利用者が再生を押すと、実際には<b>ログイン中の本人として拡散投稿にいいね</b>してしまう。</li>
+      <li>いいねを盗んだ直後に<b>オーバーレイをそっと外し、本物のネコ動画を再生</b>する。利用者は「普通に再生できた」と思い、乗っ取りに気づかない。</li>
       <li>そのいいねは本人のタイムラインに流れ、<b>友達のフィードにも同じ餌が表示</b>される。</li>
       <li>友達がまた再生を押す…で<b>自己増殖的に拡散</b>する（2010年の Facebook ライクジャッキングと同じ構図）。</li>
       <li>最終的に攻撃者は、拡散で集めた利用者をアンケートや<b>高額課金へ誘導して収益化</b>する。</li>
     </ol>
   </div>
 
+  <!-- 対策ONのときだけ出る解説 -->
+  <div class="defense">
+    <h3>🛡 対策した場合（フレーム化の拒否）</h3>
+    <p>標的が次のどちらかのヘッダを返すと、攻撃者サイトはいいねボタンを iframe で
+       埋め込めなくなります。</p>
+    <ul style="margin:0;padding-left:1.2em">
+      <li><code>X-Frame-Options: DENY</code>（古くからある専用ヘッダ）</li>
+      <li><code>Content-Security-Policy: frame-ancestors 'none'</code>（現代的な方法）</li>
+    </ul>
+    <p style="margin:10px 0 0">
+      すると透明な重ね合わせが成立せず、<b>再生を押してもクリックは奪われません</b>。
+      いいねは盗まれず、`http://localhost:8080/sns` のタイムラインも増えません。
+      このデモでは、実際にヘッダで拒否された状態を疑似的に再現しています。
+    </p>
+  </div>
+
   <p style="color:#888;font-size:13px;margin-top:30px">
-    ※ これは教育用デモです。右上のトグルで仕掛けを可視化できます。
+    ※ これは教育用デモです。右上のトグルで仕掛けの可視化と、対策後の挙動を切り替えられます。
   </p>
 
   <script>
     const root = document.documentElement;
     const toggle = document.getElementById('toggleOverlay');
     const slider = document.getElementById('opacitySlider');
-    function apply() {
+    const defense = document.getElementById('toggleDefense');
+    const overlay = document.getElementById('overlay');
+    const blocked = document.getElementById('blocked');
+    const playBtn = document.querySelector('.play');
+    const video = document.getElementById('video');
+    const badge = document.getElementById('statusBadge');
+
+    function applyOverlay() {
       const op = toggle.checked ? Number(slider.value) : 0;
       root.style.setProperty('--overlay-opacity', String(op));
       document.body.classList.toggle('show-overlay', toggle.checked);
     }
-    toggle.addEventListener('change', apply);
-    slider.addEventListener('input', apply);
-    apply();
+    toggle.addEventListener('change', applyOverlay);
+    slider.addEventListener('input', applyOverlay);
+
+    // 再生ボタンを押したときの「本来の(正しい)動作」= ネコ動画を再生。
+    // 対策ONのときは、オーバーレイが無いのでこのクリックがそのまま効く。
+    function playVideo() {
+      playBtn.style.display = 'none';
+      overlay.style.display = 'none';
+      video.classList.add('playing');
+    }
+    playBtn.addEventListener('click', () => {
+      if (defense.checked) playVideo();   // 対策ON: 素直に再生(乗っ取り無し)
+      // 対策OFFのときは、このクリックは透明iframeに吸われるので通常ここは呼ばれない。
+    });
+
+    // シーンを初期状態へ戻す(モード切替時に呼ぶ)。
+    let attacked = false;
+    function resetScene() {
+      attacked = false;
+      video.classList.remove('playing');
+      // 進行バーのアニメをやり直すため要素を作り直す
+      const bar = video.querySelector('.vbar');
+      if (bar) bar.innerHTML = '<i></i>';
+      playBtn.style.display = '';
+      if (defense.checked) {
+        overlay.style.display = 'none';   // 対策ON: iframe は拒否され表示されない
+      } else {
+        overlay.style.display = '';       // 対策OFF: iframe が重なる(脆弱)
+      }
+    }
+
+    defense.addEventListener('change', () => {
+      document.body.classList.toggle('defended', defense.checked);
+      badge.textContent = defense.checked ? '対策済み（攻撃失敗）' : '脆弱（攻撃成立）';
+      badge.className = 'status ' + (defense.checked ? 'safe' : 'vuln');
+      resetScene();
+    });
+
+    // --- 2段階の仕掛け (対策OFFのときだけ働く) ---
+    // 利用者のクリックは透明な iframe(いいねボタン)に吸われる。クロスオリジンの
+    // iframe をクリックするとフォーカスが移り、親ページで window の blur が発火する。
+    // これを合図に「いいねが盗まれた」と判断し、オーバーレイを外してネコ動画を再生する。
+    window.addEventListener('blur', () => {
+      if (attacked || defense.checked) return;
+      setTimeout(() => {
+        if (attacked || document.activeElement !== overlay) return;
+        attacked = true;
+        // iframe 内のフォーム送信(=いいね)が完了する余裕をもってから外して再生。
+        setTimeout(playVideo, 250);
+      }, 60);
+    });
+
+    applyOverlay();
+    resetScene();
   </script>
 </body>
 </html>
