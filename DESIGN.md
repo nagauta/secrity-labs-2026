@@ -65,15 +65,21 @@ secrity-labs-2026/
 ├── DESIGN.md
 ├── README.md
 ├── docker-compose.yml
-├── target/            ← Hono製の脆弱Webアプリ
+├── target/            ← Hono製の脆弱Webアプリ（TypeScript / tsx 実行）
 │   ├── Dockerfile
 │   ├── package.json
-│   └── server.js
-└── attacker/          ← おとりページ配信（依存なしの静的サーバ）
+│   ├── tsconfig.json
+│   └── server.ts
+└── attacker/          ← おとりページ配信（Node標準モジュールのみ / tsx 実行）
     ├── Dockerfile
-    ├── serve.js
-    └── evil.html
+    ├── package.json
+    ├── tsconfig.json
+    ├── serve.ts
+    └── evil.html      ← 右上トグルでオーバーレイを可視化できる
 ```
+
+※ 実装言語は TypeScript。target は Hono、attacker は依存ライブラリなしの
+   Node 標準モジュールで、どちらも `tsx` で TS を直接実行する。
 
 ## 7. 学習フロー（クリックジャッキング）
 

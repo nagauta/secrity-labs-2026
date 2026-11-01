@@ -1,0 +1,17 @@
+{
+  "name": "attacker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "おとりページ配信サーバ (教育用)",
+  "scripts": {
+    "start": "tsx serve.ts"
+  },
+  "dependencies": {
+    "tsx": "4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  }
+}

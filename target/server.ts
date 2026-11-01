@@ -1,0 +1,182 @@
+// ============================================================================
+// target/server.ts  ―  やられ役Webアプリ (Hono + TypeScript)
+// ----------------------------------------------------------------------------
+// ※ 教育目的の「意図的に脆弱な」アプリです。本番・公開サーバには置かないこと。
+//   ローカル隔離 (127.0.0.1) のラボ内でのみ動かす前提です。
+//
+// このモジュールの脆弱性: クリックジャッキング (Clickjacking)
+//   /account がフレーム化を禁止するヘッダを返さないため、
+//   任意の外部サイトが <iframe> で埋め込めてしまう。
+// ============================================================================
+
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+
+const app = new Hono();
+
+// このラボ内でのみ使う、超単純な「口座状態」。DBの代わりのメモリ変数。
+let points = 1000;
+let donatedTotal = 0;
+
+// ---------------------------------------------------------------------------
+// ★ 脆弱ポイントの核心 ★
+//   本来ここで、全レスポンス (少なくとも /account) にフレーム化禁止ヘッダを
+//   付ければクリックジャッキングは防げる。このラボでは「あえて付けていない」。
+//
+//   == 対策 (どちらか一方を有効化すれば攻撃は成立しなくなる) ==
+//   下の app.use(...) のコメントを外して再起動し、同じ攻撃が失敗することを確認せよ。
+// ---------------------------------------------------------------------------
+//
+// app.use('*', async (c, next) => {
+//   await next();
+//   // 対策A: 古くからある専用ヘッダ。iframe 埋め込みを全面拒否。
+//   c.header('X-Frame-Options', 'DENY');
+//   // 対策B: 現代的な方法。frame-ancestors 'none' で祖先フレームを一切許可しない。
+//   c.header('Content-Security-Policy', "frame-ancestors 'none'");
+// });
+
+// トップ: 口座ページへの入口
+app.get('/', (c) => {
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>target bank</title></head>
+<body>
+  <h1>ラボ銀行 (target)</h1>
+  <p>これは教育用のやられ役サイトです。</p>
+  <p><a href="/account">口座ページへ</a></p>
+</body></html>`);
+});
+
+// /account : 危険な操作ボタンを持つページ。
+//   ↑このページがフレーム化禁止ヘッダを返さないのが脆弱点。
+app.get('/account', (c) => {
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>あなたの口座</title>
+<style>
+  body { font-family: sans-serif; padding: 24px; }
+  .danger { background:#c0392b; color:#fff; font-size:20px;
+            padding:16px 28px; border:none; border-radius:8px; cursor:pointer; }
+  .box { border:1px solid #ddd; border-radius:10px; padding:20px; max-width:420px; }
+</style></head>
+<body>
+  <div class="box">
+    <h1>あなたの口座</h1>
+    <p>保有ポイント: <strong>${points}</strong></p>
+    <p>これまでの寄付合計: <strong>${donatedTotal}</strong></p>
+    <hr>
+    <p>下のボタンは <b>保有ポイントを全額、慈善団体へ寄付</b>します。取り消せません。</p>
+    <!-- 危険な操作がワンクリックで、再認証も確認もなく実行できてしまう点も弱い -->
+    <form method="POST" action="/donate-all">
+      <button class="danger" type="submit">全ポイントを寄付する</button>
+    </form>
+  </div>
+</body></html>`);
+});
+
+// 危険な操作の実体。確認・再認証・CSRFトークンなどが一切ない。
+app.post('/donate-all', (c) => {
+  donatedTotal += points;
+  const moved = points;
+  points = 0;
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>寄付完了</title></head>
+<body style="font-family:sans-serif;padding:24px">
+  <h1>寄付が実行されました</h1>
+  <p>${moved} ポイントを寄付しました。残高: <strong>${points}</strong></p>
+  <p><a href="/account">口座ページへ戻る</a></p>
+</body></html>`);
+});
+
+// ラボをやり直すためのリセット (学習の利便用)
+app.post('/reset', (c) => {
+  points = 1000;
+  donatedTotal = 0;
+  return c.json({ ok: true, points, donatedTotal });
+});
+
+// ===========================================================================
+// 追加シナリオ: ライクジャッキング (Likejacking) ― 架空SNS「つなぐ」
+// ---------------------------------------------------------------------------
+// 2010年に Facebook で流行した「いいね！」ボタン乗っ取りの再現。
+//   - /sns/widget は、外部サイトに貼り付ける「いいね」ボタン(埋め込みウィジェット)。
+//     Facebook の Like プラグインに相当する。
+//   - このウィジェットもフレーム化禁止ヘッダを返さないため、攻撃者が透明で重ねられる。
+//   - 「ログイン中の本人」としていいねが成立し、本人のフィードに流れる(=友達に拡散)。
+//
+//   ※ 本物の Facebook は別ドメイン(cross-site)なので、現代ブラウザのサードパーティ
+//      Cookie ブロックや SameSite が効く。このラボは localhost 同士(same-site)なので
+//      セッションを使わずとも「ログイン中の本人の操作」を単純なサーバ状態で再現する。
+// ===========================================================================
+
+// 「ログイン中ユーザー」とその『いいね』フィード (DB代わりのメモリ状態)
+const snsUser = 'あなた (@you)';
+let likedFeed: string[] = [];
+
+// SNSホーム: 誰としてログイン中か、これまで何に「いいね」したか(=友達に流れた内容)。
+app.get('/sns', (c) => {
+  const feedHtml = likedFeed.length
+    ? likedFeed.map((t) => `<li>👍 <strong>${t}</strong> <span style="color:#888">— あなたがいいねしました(友達のフィードに表示)</span></li>`).join('')
+    : '<li style="color:#888">まだ何もいいねしていません</li>';
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>つなぐ (SNS)</title>
+<style>
+  body { font-family: sans-serif; padding:24px; max-width:640px; }
+  .me { background:#eef3ff; border-radius:10px; padding:12px 16px; }
+  li { margin:8px 0; }
+</style></head>
+<body>
+  <h1>つなぐ <span style="font-size:14px;color:#888">架空SNS (target)</span></h1>
+  <p class="me">ログイン中: <strong>${snsUser}</strong></p>
+  <h2>あなたがいいねした投稿 (タイムライン)</h2>
+  <ul>${feedHtml}</ul>
+</body></html>`);
+});
+
+// 埋め込み用「いいね」ウィジェット。外部サイトに iframe で貼る想定。
+//   ?title=... で対象の投稿タイトルを受け取る。★フレーム化禁止ヘッダは無し(脆弱点)。
+app.get('/sns/widget', (c) => {
+  const title = c.req.query('title') ?? 'おすすめの投稿';
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>いいねウィジェット</title>
+<style>
+  body { font-family: sans-serif; margin:0; padding:10px; }
+  .card { border:1px solid #d9d9d9; border-radius:10px; padding:12px 14px; max-width:320px; }
+  .ttl { font-size:14px; margin:0 0 10px; }
+  .like { background:#1877f2; color:#fff; border:none; border-radius:6px;
+          font-size:16px; font-weight:bold; padding:10px 22px; cursor:pointer; }
+</style></head>
+<body>
+  <div class="card">
+    <p class="ttl">【つなぐ】${title}</p>
+    <!-- ログイン中の本人として、ワンクリックで「いいね」が確定する -->
+    <form method="POST" action="/sns/like">
+      <input type="hidden" name="title" value="${title}">
+      <button class="like" type="submit">👍 いいね！</button>
+    </form>
+  </div>
+</body></html>`);
+});
+
+// 「いいね」の実体。確認なしでフィードに追加される(=友達に拡散される)。
+app.post('/sns/like', async (c) => {
+  const body = await c.req.parseBody();
+  const title = typeof body.title === 'string' ? body.title : 'おすすめの投稿';
+  likedFeed.push(title);
+  return c.html(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>いいね完了</title></head>
+<body style="font-family:sans-serif;padding:16px">
+  <p>👍 「${title}」にいいねしました。</p>
+  <p><a href="/sns">タイムラインを見る</a></p>
+</body></html>`);
+});
+
+// SNSシナリオのリセット
+app.post('/sns/reset', (c) => {
+  likedFeed = [];
+  return c.json({ ok: true, likedFeed });
+});
+
+const port = Number(process.env.PORT ?? 8080);
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
+  // コンテナ内は 0.0.0.0 で待受。外部公開は docker-compose 側で 127.0.0.1 に限定する。
+  console.log(`[target] listening on http://0.0.0.0:${info.port}`);
+});
