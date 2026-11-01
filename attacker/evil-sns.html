@@ -41,17 +41,19 @@
        実際の X-Frame-Options / CSP では iframe が空白になり、クリックも奪えない。 */
     .blocked {
       position: absolute; top: 46px; left: 131px; width: 360px; height: 150px;
-      z-index: 2; display: none;
+      z-index: 2; display: none; pointer-events: none;   /* クリックは奪わない(対策済みなので) */
       background: repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 10px,#242424 10px,#242424 20px);
       border: 1px dashed #888; border-radius: 6px; color:#bbb;
       font-size: 12px; line-height:1.5; padding: 10px; box-sizing:border-box;
       align-items: center; justify-content: center; text-align:center;
     }
     body.defended .blocked { display: flex; }
+    /* 対策ONでは攻撃者のオーバーレイが無いので、再生ボタンを前面に出して素直に押せる。 */
+    body.defended .play { z-index: 3; }
 
     /* 盗んだクリックの直後に表示する「ネコ動画」(外部依存なしのCSSアニメ) */
     .video {
-      position: absolute; inset: 0; display: none;
+      position: absolute; inset: 0; display: none; z-index: 4;   /* 再生中は最前面 */
       flex-direction: column; align-items: center; justify-content: center;
       background: radial-gradient(circle at 50% 35%, #2b3a55, #0b1222);
       color:#fff;
