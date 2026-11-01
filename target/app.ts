@@ -445,3 +445,54 @@ app.post('/account/reset', (c) => {
   accountEmail = 'you@tsunagu.example';
   return c.json({ ok: true, email: accountEmail });
 });
+
+// ===========================================================================
+// モジュール7: 認可制御の欠落 (IDOR / BOLA) ― ダイレクトメッセージ閲覧
+// ---------------------------------------------------------------------------
+// 実在事例: 2019年 First American Financial の情報漏えい。書類URLが連番IDで、
+//   ログインも所有者チェックも無かったため、ID を増減するだけで他人の
+//   不動産取引書類(社会保障番号や銀行口座など)約8.85億件が誰でも閲覧できた。
+//   「本人のものかを確認し忘れた(認可制御の欠落 / IDOR・BOLA)」典型例。
+//
+// 架空シナリオ (つなぐ):
+//   ダイレクトメッセージ(DM)が連番IDで取得でき、取得時に「そのDMが本当に
+//   リクエスト元ユーザーのものか」を確認していない。ID を 1,2,3... と変えるだけで
+//   他人の非公開DM(口座番号や管理者パスワード等)が読めてしまう。
+//
+//   ※ ログイン中ユーザーは学習用に X-User ヘッダで表現する(既定 you)。
+// 脆弱点: 一覧は owner で絞っているのに、個別取得が owner 照合を忘れている。
+// ===========================================================================
+
+type DirectMessage = { id: number; owner: string; peer: string; body: string };
+const messages: DirectMessage[] = [
+  { id: 1, owner: 'you', peer: 'samy', body: '明日の打ち合わせ、10時で大丈夫です' },
+  { id: 2, owner: 'samy', peer: 'admin', body: '例のサーバの鍵は kagi-7788。内緒で' },
+  { id: 3, owner: 'admin', peer: 'ceo', body: '管理者パスワードの一時値: Adm!n-tmp-0001' },
+  { id: 4, owner: 'you', peer: 'admin', body: '経費精算、提出しました' },
+];
+
+// リクエスト元(ログイン中)ユーザー。学習用に X-User ヘッダで切り替える(既定 you)。
+const currentUser = (c: { req: { header: (k: string) => string | undefined } }): string =>
+  c.req.header('x-user') ?? 'you';
+
+// --- 対策(所有者チェック)。これなら他人のDMは読めない ---
+//   if (msg.owner !== currentUser(c)) {
+//     return c.json({ ok: false, error: 'forbidden' }, 403);  // 本人のもの以外は拒否
+//   }
+
+// 自分のDM一覧。こちらは owner で正しく絞っている(対比用)。
+app.get('/api/messages', (c) => {
+  const me = currentUser(c);
+  const mine = messages.filter((m) => m.owner === me);
+  return c.json({ ok: true, user: me, messages: mine });
+});
+
+// DM 個別取得。★ owner 照合を忘れている(認可制御の欠落 = IDOR/BOLA)。
+//   X-User: you のまま id=2,3 を叩くと、他人の非公開DMが読めてしまう。
+app.get('/api/messages/:id', (c) => {
+  const id = Number(c.req.param('id'));
+  const msg = messages.find((m) => m.id === id);
+  if (!msg) return c.json({ ok: false, error: 'not found' }, 404);
+  // 脆弱: ここで msg.owner === currentUser(c) を確認していない。
+  return c.json({ ok: true, requestedBy: currentUser(c), message: msg });
+});
