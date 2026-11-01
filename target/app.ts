@@ -13,8 +13,12 @@
 //   返さないため、任意の外部サイトが <iframe> で透明に重ねられてしまう。
 // ============================================================================
 
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { Hono } from 'hono';
+
+const execAsync = promisify(exec);
 
 export const app = new Hono();
 
@@ -298,5 +302,49 @@ app.get('/sns/members', (c) => {
     return c.json({ ok: true, sql, rows });
   } catch (e) {
     return c.json({ ok: false, sql, error: String(e) }, 400);
+  }
+});
+
+// ===========================================================================
+// モジュール4: OSコマンドインジェクション ― 管理者向けネットワーク診断(ping)ツール
+// ---------------------------------------------------------------------------
+// 実在事例: 2014年「Shellshock」(CVE-2014-6271)。bash の環境変数処理の欠陥を突いて、
+//   CGI 経由などで Web サーバ上に任意の OS コマンドを実行され、多数のサーバが乗っ取られた。
+//   「Web からの入力が最終的にシェルに渡る」典型例で、管理画面の ping/traceroute 診断
+//   機能に ; や && を混ぜてコマンドを連結する古典的な注入も同じ原理で成立する。
+//
+// 架空シナリオ (つなぐ):
+//   運営の管理画面に「サーバ疎通確認(ping)」ツールがある。入力ホスト名をそのまま
+//   `ping -c 1 <host>` のコマンド文字列に連結してシェル実行しているため、
+//     host = 127.0.0.1; cat /etc/passwd   のように書くと任意コマンドが動く。
+//
+// 脆弱点: ユーザー入力をシェルコマンド文字列へ連結し、`exec`(シェル経由)で実行している。
+// ===========================================================================
+
+// --- 対策(シェルを介さない + 入力検証)。これなら注入は成立しない ---
+//   import { execFile } from 'node:child_process';
+//   // 1) ホスト名として妥当な文字だけ許可(英数字・ドット・ハイフン)。
+//   if (!/^[A-Za-z0-9.-]+$/.test(host)) return c.json({ ok:false, error:'invalid host' }, 400);
+//   // 2) シェルを使わず引数配列で渡す(; や && がメタ文字として解釈されない)。
+//   const { stdout } = await execFileAsync('ping', ['-c', '1', host]);
+
+// 管理者向け ping 診断。★ 入力を ping コマンド文字列へ連結して exec(脆弱)。
+//   host = 127.0.0.1; echo PWNED  →  ping のあとに echo も実行される。
+app.get('/admin/net/ping', async (c) => {
+  const host = c.req.query('host') ?? '127.0.0.1';
+  const cmd = `ping -c 1 ${host}`;
+  try {
+    // シェル経由で実行するため ; && | ` などのメタ文字が効いてしまう。
+    const { stdout, stderr } = await execAsync(cmd, { timeout: 5000 });
+    return c.json({ ok: true, cmd, output: stdout + stderr });
+  } catch (e) {
+    // 実行自体が失敗(ping 不在や非ゼロ終了)でも、連結したコマンドの出力は得られる。
+    const err = e as { stdout?: string; stderr?: string; message?: string };
+    return c.json({
+      ok: false,
+      cmd,
+      output: (err.stdout ?? '') + (err.stderr ?? ''),
+      error: err.message ?? String(e),
+    });
   }
 });
