@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 
 const execAsync = promisify(exec);
 
@@ -479,6 +480,17 @@ const currentUser = (c: { req: { header: (k: string) => string | undefined } }):
 //   if (msg.owner !== currentUser(c)) {
 //     return c.json({ ok: false, error: 'forbidden' }, 403);  // 本人のもの以外は拒否
 //   }
+
+// --- ブラウザからこのJSON APIを「別オリジン」で叩けるようにする (CORS) ---
+//   DMビューア(attacker/evil-authz.html)は http://localhost:9090 から配信され、
+//   このAPI http://localhost:8080 を fetch で読む → クロスオリジン。
+//   さらに学習用の `X-User` は単純ヘッダではないため、ブラウザは事前に
+//   プリフライト(OPTIONS)を送る。CORS応答が無いとブラウザが結果の読み取りを
+//   ブロックし、画面には "TypeError: Failed to fetch" だけが出る(サーバは正常)。
+//   そこで /api/* に許可応答を返す。これは認可(所有者チェック)の話とは別問題で、
+//   現実のIDOR型JSON APIでも緩いCORSは珍しくない。所有者チェックの欠落(下記)が
+//   脆弱性の本体であり、CORSはそれを「ブラウザから」体験可能にするためのもの。
+app.use('/api/*', cors({ origin: '*', allowHeaders: ['X-User', 'Content-Type'] }));
 
 // 自分のDM一覧。こちらは owner で正しく絞っている(対比用)。
 app.get('/api/messages', (c) => {

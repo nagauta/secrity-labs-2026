@@ -56,4 +56,28 @@ describe('認可制御の欠落 (/api/messages/:id)', () => {
     const res = await asYou('/api/messages/999');
     expect(res.status).toBe(404);
   });
+
+  // DMビューアは別オリジン(9090)から 8080 の API を fetch する。CORS応答が無いと
+  // ブラウザが結果の読み取りをブロックし "TypeError: Failed to fetch" になる。
+  // ここでCORS応答を固定し、ブラウザからの体験が壊れない(= 回帰しない)ことを担保する。
+  it('API応答にCORS許可ヘッダが付く(別オリジンのブラウザから読める)', async () => {
+    const res = await asYou('/api/messages/2');
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  it('プリフライト(OPTIONS)に X-User を許可して応答する', async () => {
+    const res = await app.request('/api/messages/2', {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://localhost:9090',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'x-user',
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect((res.headers.get('access-control-allow-headers') ?? '').toLowerCase()).toContain(
+      'x-user',
+    );
+  });
 });
