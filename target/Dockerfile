@@ -15,6 +15,8 @@ COPY package.json ./
 RUN npm install
 
 COPY tsconfig.json server.ts app.ts ./
+# 添付ファイル機能(パストラバーサルのモジュール)の公開ディレクトリ。
+COPY uploads ./uploads
 
 EXPOSE 8080
 CMD ["npm", "start"]

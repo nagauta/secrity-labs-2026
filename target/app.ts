@@ -14,6 +14,8 @@
 // ============================================================================
 
 import { exec } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { Hono } from 'hono';
@@ -346,5 +348,47 @@ app.get('/admin/net/ping', async (c) => {
       output: (err.stdout ?? '') + (err.stderr ?? ''),
       error: err.message ?? String(e),
     });
+  }
+});
+
+// ===========================================================================
+// モジュール5: パストラバーサル (ディレクトリトラバーサル) ― 添付ファイル閲覧
+// ---------------------------------------------------------------------------
+// 実在事例: 2021年「CVE-2021-41773」(Apache HTTP Server 2.4.49)。URL の正規化不備で
+//   `..%2f` を使ったパストラバーサルが可能になり、ドキュメントルート外のファイル閲覧や
+//   (条件次第で)リモートコード実行まで引き起こした。古典の `../../etc/passwd` と同原理。
+//
+// 架空シナリオ (つなぐ):
+//   投稿の「添付ファイル」を名前で取り出す機能が、公開ディレクトリ(uploads)に対して
+//   入力ファイル名を join するだけで中身を返す。name = ../../../../etc/passwd のように
+//   `../` を重ねると、公開ディレクトリの外のファイル(サーバの秘密)まで読めてしまう。
+//
+// 脆弱点: 入力ファイル名を検証せず join(UPLOAD_DIR, name) し、公開範囲の外へ出られる。
+// ===========================================================================
+
+// 公開してよい添付ファイルの置き場(ここ「だけ」を見せるつもりの設計)。
+const UPLOAD_DIR = join(import.meta.dirname, 'uploads');
+
+// --- 対策(公開ディレクトリ内に収まっているか検証)。これなら外へ出られない ---
+//   import { resolve, relative, isAbsolute } from 'node:path';
+//   const full = resolve(UPLOAD_DIR, name);
+//   const rel = relative(UPLOAD_DIR, full);
+//   if (rel.startsWith('..') || isAbsolute(rel)) {
+//     return c.json({ ok:false, error:'invalid path' }, 400);  // 公開範囲の外は拒否
+//   }
+//   // (あわせて name から '..' やパス区切りを弾くと多層防御になる)
+
+// 添付ファイル取得。★ 入力ファイル名を検証せず join するだけ(脆弱)。
+//   name = welcome.txt          → 正常に添付を返す
+//   name = ../../../../etc/passwd → 公開ディレクトリ外まで読めてしまう
+app.get('/sns/files', async (c) => {
+  const name = c.req.query('name') ?? 'welcome.txt';
+  // 脆弱: resolve 後の範囲チェックをしていないため `../` で外へ出られる。
+  const target = join(UPLOAD_DIR, name);
+  try {
+    const content = await readFile(target, 'utf8');
+    return c.text(content);
+  } catch {
+    return c.json({ ok: false, requested: name, resolved: target, error: 'not found' }, 404);
   }
 });

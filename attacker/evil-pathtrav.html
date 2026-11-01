@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>つなぐ 添付ファイルビューア</title>
+  <style>
+    body { font-family: sans-serif; padding:40px 16px; background:#111; color:#eee; margin:0; }
+    h1 { color:#ff5252; text-align:center; }
+    .wrap { max-width:640px; margin:0 auto; }
+    .card { background:#1b1b1b; border:1px solid #333; border-radius:10px; padding:18px 20px; margin:16px 0; }
+    .card h3 { margin:0 0 10px; font-size:15px; }
+    input { width:100%; padding:8px 10px; border-radius:6px; border:1px solid #444; background:#0d0d0d; color:#eee; box-sizing:border-box; font-family:monospace; }
+    button { margin-top:12px; background:#ff5252; color:#fff; border:none; border-radius:6px; padding:8px 14px; font-weight:bold; cursor:pointer; }
+    .quick { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .quick button { margin:0; background:#2d2d2d; color:#9cdcfe; font-weight:normal; font-family:monospace; font-size:12px; }
+    code { background:#0a140e; padding:1px 5px; border-radius:4px; color:#9be8b4; font-size:12px; }
+    .payload { color:#ffd54f; font-family:monospace; }
+    pre { background:#000; border:1px solid #333; border-radius:8px; padding:12px; overflow:auto; font-size:12px; color:#9be8b4; white-space:pre-wrap; word-break:break-all; max-height:260px; }
+
+    .panel { position: fixed; top:12px; right:12px; z-index:10; background:#fff; color:#333; border:1px solid #ccc; border-radius:10px; padding:12px 14px; text-align:left; font-size:13px; width:260px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    .panel h2 { font-size:13px; margin:0 0 8px; color:#555; }
+    .panel label { display:flex; align-items:center; gap:6px; margin:6px 0; cursor:pointer; color:#333; }
+    .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
+    .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
+    .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; background:#ffe5e5; color:#c0392b; }
+
+    .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px 0; }
+    .intent { background:#1e1e1e; border:1px solid #ff5252; }
+    .defense { background:#12241a; border:1px solid #2ecc71; }
+    body.show-intent .intent { display:block; }
+    body.show-defense .defense { display:block; }
+    .intent h3 { margin:0 0 8px; color:#ff5252; font-size:14px; }
+    .defense h3 { margin:0 0 8px; color:#2ecc71; font-size:14px; }
+    .intent b { color:#ffd54f; }
+    .intent ol { margin:0; padding-left:1.2em; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>🔎 学習用コントロール</h2>
+    <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <div class="hint"><code>../</code> を重ねて公開ディレクトリの外へ出られます。</div>
+    <hr>
+    状態: <span class="status">脆弱（範囲チェック無し）</span>
+  </div>
+
+  <div class="wrap">
+    <h1>📎 つなぐ 添付ファイルビューア</h1>
+    <p style="text-align:center;color:#aaa">投稿の添付ファイルをファイル名で表示します。</p>
+
+    <div class="card">
+      <h3>添付ファイルを開く</h3>
+      <input id="name" value="../../../../../../../../../../../../etc/passwd">
+      <div class="quick">
+        <button data-name="welcome.txt">welcome.txt（正常）</button>
+        <button data-name="notice.txt">notice.txt（正常）</button>
+        <button data-name="../../../../../../../../../../../../etc/passwd">../etc/passwd</button>
+        <button data-name="../../../../../../../../../../../../etc/hostname">../etc/hostname</button>
+        <button data-name="../package.json">../package.json</button>
+      </div>
+      <button id="open">開く</button>
+      <pre id="out" hidden></pre>
+    </div>
+
+    <div class="intent">
+      <h3>🎯 攻撃者の狙い（パストラバーサル / Apache CVE-2021-41773 2021）</h3>
+      <ol>
+        <li>添付の取得が<b>ファイル名をそのまま結合</b>しているだけだと見抜く。</li>
+        <li><b>../ を重ねて</b>公開ディレクトリの外へ抜け、<code>/etc/passwd</code> や設定ファイル、
+            アプリのソースや秘密情報を読み出す。</li>
+        <li>読み取った鍵・認証情報を足がかりに、さらに奥へ侵入する。</li>
+        <li>CVE-2021-41773 では同じ「パスの正規化不備」で、世界中の Apache が一斉に狙われた。</li>
+      </ol>
+    </div>
+
+    <div class="defense">
+      <h3>🛡 対策した場合（公開範囲の検証）</h3>
+      <p><code>resolve(UPLOAD_DIR, name)</code> で正規化した結果が<b>公開ディレクトリ内に収まっているか</b>
+         を確認し、外に出る場合は拒否します（<code>relative()</code> が <code>..</code> で始まらないこと）。
+         あわせて入力から <code>..</code> やパス区切りを弾くと多層防御になります。</p>
+    </div>
+  </div>
+
+  <script>
+    const intent = document.getElementById('toggleIntent');
+    const defense = document.getElementById('toggleDefense');
+    const name = document.getElementById('name');
+    const out = document.getElementById('out');
+
+    intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
+    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+
+    for (const b of document.querySelectorAll('.quick button')) {
+      b.addEventListener('click', () => { name.value = b.dataset.name; });
+    }
+
+    document.getElementById('open').addEventListener('click', async () => {
+      out.hidden = false;
+      out.textContent = '取得中…';
+      const url = 'http://localhost:8080/sns/files?name=' + encodeURIComponent(name.value);
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
+        out.textContent = 'GET ' + url + '\n\n' + text;
+      } catch (e) {
+        out.textContent = 'リクエストに失敗しました。直接開く: ' + url + '\n\n' + e;
+      }
+    });
+  </script>
+</body>
+</html>
