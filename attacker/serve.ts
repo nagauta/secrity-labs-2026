@@ -13,19 +13,11 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const port = 9090;
 
-// パスごとに配信するおとりページ (パストラバーサル回避のため既知ファイルのみ許可)
-const routes: Record<string, string> = {
-  '/': 'evil.html',                 // クリックジャッキング(銀行)シナリオ
-  '/evil.html': 'evil.html',
-  '/sns': 'evil-sns.html',          // ライクジャッキング(架空SNS)シナリオ
-  '/evil-sns.html': 'evil-sns.html',
-};
-
-const server = createServer(async (req, res) => {
+// 配信するおとりページ。ライクジャッキング(架空SNS)シナリオのみ。
+//   どのパスでも evil-sns.html を返す単純構成。
+const server = createServer(async (_req, res) => {
   try {
-    const path = (req.url ?? '/').split('?')[0];
-    const file = routes[path] ?? 'evil.html';
-    const html = await readFile(join(__dirname, file));
+    const html = await readFile(join(__dirname, 'evil-sns.html'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
   } catch (err) {
