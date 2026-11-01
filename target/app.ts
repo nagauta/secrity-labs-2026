@@ -26,6 +26,23 @@ const execAsync = promisify(exec);
 export const app = new Hono();
 
 // ---------------------------------------------------------------------------
+// CORS ― 各攻撃デモ(attacker/*.html)を「ブラウザから」体験可能にするための配線
+//   攻撃デモは別オリジン http://localhost:9090 から配信され、この標的
+//   http://localhost:8080 の応答を fetch で読み取る(例: /admin/net/ping,
+//   /sns/files, /account, /api/messages)。標的がCORS応答を返さないと、
+//   サーバは正常に処理していてもブラウザが結果の読み取りをブロックし、画面には
+//   "TypeError: Failed to fetch" だけが出てデモが成立しない。
+//   そこで全ルートに許可応答を付ける。これは各モジュールの脆弱性(所有者チェック
+//   欠落・OSコマンド注入・パストラバーサル等)とは別問題で、緩いCORSは現実のAPIでも
+//   珍しくない。脆弱性の本体はあくまで各ハンドラ側にあり、CORSはそれを
+//   ブラウザ越しに観測できるようにするだけ。
+//   ※ ナビゲーション主体のデモ(フォーム送信=CSRF、iframe=クリックジャッキング、
+//     直接URL=SQLi/XSS)はCORS無しでも成立する。これは fetch で応答を読む
+//     デモ(OSコマンド/パストラバーサル/IDOR、CSRFの検証表示)向けの配線。
+// ---------------------------------------------------------------------------
+app.use('*', cors({ origin: '*', allowHeaders: ['X-User', 'Content-Type'] }));
+
+// ---------------------------------------------------------------------------
 // ★ 脆弱ポイントの核心 ★
 //   本来ここで、全レスポンス (少なくとも /sns/widget) にフレーム化禁止ヘッダを
 //   付ければクリックジャッキングは防げる。このラボでは「あえて付けていない」。
@@ -480,17 +497,6 @@ const currentUser = (c: { req: { header: (k: string) => string | undefined } }):
 //   if (msg.owner !== currentUser(c)) {
 //     return c.json({ ok: false, error: 'forbidden' }, 403);  // 本人のもの以外は拒否
 //   }
-
-// --- ブラウザからこのJSON APIを「別オリジン」で叩けるようにする (CORS) ---
-//   DMビューア(attacker/evil-authz.html)は http://localhost:9090 から配信され、
-//   このAPI http://localhost:8080 を fetch で読む → クロスオリジン。
-//   さらに学習用の `X-User` は単純ヘッダではないため、ブラウザは事前に
-//   プリフライト(OPTIONS)を送る。CORS応答が無いとブラウザが結果の読み取りを
-//   ブロックし、画面には "TypeError: Failed to fetch" だけが出る(サーバは正常)。
-//   そこで /api/* に許可応答を返す。これは認可(所有者チェック)の話とは別問題で、
-//   現実のIDOR型JSON APIでも緩いCORSは珍しくない。所有者チェックの欠落(下記)が
-//   脆弱性の本体であり、CORSはそれを「ブラウザから」体験可能にするためのもの。
-app.use('/api/*', cors({ origin: '*', allowHeaders: ['X-User', 'Content-Type'] }));
 
 // 自分のDM一覧。こちらは owner で正しく絞っている(対比用)。
 app.get('/api/messages', (c) => {
