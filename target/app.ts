@@ -431,10 +431,15 @@ app.get('/sns/files', async (c) => {
 let accountEmail = 'you@tsunagu.example';
 
 // --- 対策(CSRFトークン / Origin 検査)。これなら他サイトからの偽造リクエストを弾ける ---
-//   // 1) フォーム表示時に発行した同期トークンを照合する(値が一致しなければ拒否)。
+//   ※ この最小ラボはセッションや同期トークンの発行を実装していない。そのため
+//     下記 1) をそのまま有効化しても、トークン未発行どうしの `undefined !== undefined`
+//     が成立せず「fail open(素通り)」になり、攻撃が止まらない点に注意。
+//     1) を使うなら、まずフォーム表示時にトークンを発行・保存し、未提示は必ず拒否
+//     (fail closed)する必要がある。このラボで今すぐ効くのは 2) の Origin 検査。
+//   // 1) フォーム表示時に発行した同期トークンを照合する(未提示・不一致は必ず拒否)。
 //   const token = (await c.req.parseBody()).csrf_token;
-//   if (token !== c.get('sessionCsrfToken')) return c.json({ ok:false, error:'bad csrf token' }, 403);
-//   // 2) もしくは Origin/Referer が自分のサイトかを検査する。
+//   if (!token || token !== c.get('sessionCsrfToken')) return c.json({ ok:false, error:'bad csrf token' }, 403);
+//   // 2) もしくは Origin/Referer が自分のサイトかを検査する(このラボではこれが即有効)。
 //   const origin = c.req.header('origin');
 //   if (origin && new URL(origin).host !== 'localhost:8080') return c.json({ ok:false }, 403);
 //   // 3) 併せて Cookie を SameSite=Lax/Strict にすると多層防御になる。
