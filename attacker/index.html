@@ -206,6 +206,109 @@
     .demo-wrap { flex: 1; position: relative; background: #0f0f10; min-height: 0; }
     .demo-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #0f0f10; }
 
+    /* ===== 作業領域: デモ + 右のコード比較ペイン ===== */
+    .work { flex: 1; display: flex; min-height: 0; }
+    .work .demo-wrap { min-width: 0; }
+
+    .code-pane {
+      width: 400px; flex: 0 0 400px; min-height: 0;
+      display: flex; flex-direction: column;
+      background: var(--surface); border-left: 1px solid var(--border);
+    }
+    .code-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--border-soft); }
+    .code-head .where { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .code-head .point { font-size: 12px; color: var(--fg); margin-top: 6px; line-height: 1.55; }
+    .code-head .now { margin-top: 8px; font-size: 11px; color: var(--muted); }
+    .code-body { flex: 1; overflow: auto; padding: 10px 10px 14px; }
+
+    .snip {
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--bg); margin: 0 0 10px; overflow: hidden;
+      transition: opacity var(--speed) ease, border-color var(--speed) ease;
+    }
+    .snip .label {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 10px; font-size: 11px; font-weight: 600;
+      border-bottom: 1px solid var(--border-soft); background: var(--surface-2);
+    }
+    .snip.vuln .label .name { color: var(--accent); }
+    .snip.defense .label .name { color: var(--ok); }
+    .snip .running {
+      font-family: var(--mono); font-size: 10px; font-weight: 500;
+      padding: 1px 6px; border-radius: 5px; visibility: hidden;
+    }
+    .snip.vuln .running { color: var(--accent); background: var(--accent-weak); }
+    .snip.defense .running { color: var(--ok); background: var(--ok-weak); }
+    .snip.active .running { visibility: visible; }
+    .snip.vuln.active { border-color: var(--accent-line); }
+    .snip.defense.active { border-color: rgba(63,185,80,.45); }
+    .snip:not(.active) { opacity: .5; }
+
+    .snip pre {
+      margin: 0; padding: 8px 0; overflow-x: auto;
+      font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    }
+    /* 狭いペインでも読めるよう折り返す。折り返し行は記号の幅だけ字下げ(ぶら下げ)。 */
+    .snip .ln {
+      display: block; padding: 0 10px 0 20px; text-indent: -14px;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .snip .ln::before {
+      content: attr(data-mark); display: inline-block; width: 14px; text-indent: 0;
+      color: var(--faint); user-select: none;
+    }
+    .snip.vuln .ln.diff { background: var(--accent-weak); }
+    .snip.vuln .ln.diff::before { color: var(--accent); }
+    .snip.defense .ln.diff { background: var(--ok-weak); }
+    .snip.defense .ln.diff::before { color: var(--ok); }
+    .snip .ln.note { color: var(--faint); font-style: italic; }
+    .code-foot { padding: 9px 14px; border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--faint); }
+
+    /* 「コード」ボタンで隠すのはコード部分だけ。右下の学習用コントロールは常に残す。 */
+    body.hide-code .code-head, body.hide-code .code-body, body.hide-code .code-foot { display: none; }
+    body.hide-code .code-pane { width: 300px; flex-basis: 300px; }
+    body.hide-code .controls { flex: 1; border-top: 0; }
+
+    /* ===== 右下: 学習用コントロール =====
+       各デモ(iframe)の右上に浮いていた .panel を、読み込み時にここへ移して表示する。
+       ラボ画面と各デモは同一オリジンなので DOM ごと移せる(イベントリスナもそのまま動く)。
+       デモを単体で開いた(別タブ)ときは、従来どおりデモ内の右上に表示される。 */
+    .controls {
+      flex: 0 0 auto; max-height: 46%; overflow-y: auto;
+      border-top: 1px solid var(--border); background: var(--surface);
+      padding: 12px 14px 14px; font-size: 12.5px; color: var(--fg);
+    }
+    .controls[hidden] { display: none; }
+    .controls .panel h2 { display: none; } /* 見出しはペイン側の kicker で出す */
+    .controls .panel label {
+      display: flex; align-items: center; gap: 8px; margin: 6px 0;
+      cursor: pointer; color: var(--fg); font-size: 12.5px;
+    }
+    .controls .panel input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+    .controls .panel input[type="range"] { accent-color: var(--accent); }
+    .controls .panel .hint { color: var(--muted); font-size: 11px; line-height: 1.55; margin: 2px 0 0 22px; }
+    .controls .panel hr { border: 0; border-top: 1px solid var(--border-soft); margin: 10px 0; }
+    .controls .panel code {
+      font-family: var(--mono); font-size: 10.5px; color: var(--fg);
+      background: var(--surface-3); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px;
+    }
+    .controls .panel .status {
+      font-weight: 600; font-size: 11px; border-radius: 6px; padding: 2px 8px;
+      color: var(--accent); background: var(--accent-weak);
+    }
+    .controls .panel .status.safe { color: var(--ok); background: var(--ok-weak); }
+    .controls .panel button {
+      font: inherit; font-size: 12px; color: var(--fg); cursor: pointer;
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px;
+    }
+    .controls .panel button:hover { background: var(--surface-3); }
+    .btn[aria-pressed="true"] { color: var(--fg); border-color: #3a3a44; background: var(--surface-3); }
+
+    @media (max-width: 1100px) {
+      .work { flex-direction: column; }
+      .code-pane { width: auto; flex: 0 0 42%; border-left: 0; border-top: 1px solid var(--border); }
+    }
+
     .empty {
       position: absolute; inset: 0; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 10px;
@@ -264,7 +367,7 @@
       <span class="iso">対象は <span class="mono">127.0.0.1</span> のラボのみ。</span><br>
       外部ネットワークへは出しません。<br>
       <div style="margin-top:9px">
-        <span class="kbd">↑</span> <span class="kbd">↓</span> / <span class="kbd">J</span> <span class="kbd">K</span> で選択・<span class="kbd">O</span> で別タブ
+        <span class="kbd">↑</span> <span class="kbd">↓</span> / <span class="kbd">J</span> <span class="kbd">K</span> で選択・<span class="kbd">O</span> で別タブ・<span class="kbd">C</span> でコード
       </div>
     </div>
   </aside>
@@ -281,6 +384,11 @@
       <div class="actions">
         <span class="chip case mono" id="barCase" hidden></span>
         <span class="chip live" id="barLive" hidden>LIVE</span>
+        <button class="btn" id="codeBtn" title="脆弱/対策のコードを表示 (C)" aria-pressed="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/></svg>
+          コード
+        </button>
         <button class="btn" id="reloadBtn" title="デモを再読み込み" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v5h-5"/></svg>
@@ -294,6 +402,7 @@
       </div>
     </header>
 
+    <div class="work">
     <div class="demo-wrap">
       <iframe id="demo" class="demo-frame" title="attack demo"></iframe>
       <div id="empty" class="empty" hidden>
@@ -304,8 +413,27 @@
         <div>実装され次第、ここに実演が表示されます。</div>
       </div>
     </div>
+
+    <!-- 右ペイン: 脆弱/対策 の最小コード(attacker/snippets.js)。デモの「🛡 対策を有効化」と連動。 -->
+    <aside class="code-pane" id="codePane" aria-label="脆弱なコードと対策後のコード">
+      <div class="code-head">
+        <div class="kicker">Code · target/app.ts</div>
+        <div class="where" id="codeWhere"></div>
+        <div class="point" id="codePoint"></div>
+        <div class="now" id="codeNow"></div>
+      </div>
+      <div class="code-body" id="codeBody"></div>
+      <div class="code-foot">差分の行に <span class="mono">-</span> / <span class="mono">+</span>。全体は <span class="mono">target/app.ts</span> の ★ / ✅ を参照。</div>
+      <!-- 右下: 学習用コントロール(デモの .panel をここへ移す) -->
+      <section class="controls" id="controls" aria-label="学習用コントロール" hidden>
+        <div class="kicker" style="margin-bottom:4px">Controls · 学習用コントロール</div>
+        <div id="controlsSlot"></div>
+      </section>
+    </aside>
+    </div>
   </div>
 
+  <script src="snippets.js"></script>
   <script>
     // 攻撃モジュールの定義。実在事例(case)→架空シナリオの対で学ぶ。
     const MODULES = [
@@ -328,7 +456,104 @@
     const barLive = document.getElementById('barLive');
     const reloadBtn = document.getElementById('reloadBtn');
     const openBtn = document.getElementById('openBtn');
+    const codeBtn = document.getElementById('codeBtn');
     let activeId = null;
+
+    // ---- 右ペイン: 脆弱/対策 コード比較 ----
+    const SNIPPETS = window.LAB_SNIPPETS || {};
+    const codeWhere = document.getElementById('codeWhere');
+    const codePoint = document.getElementById('codePoint');
+    const codeNow = document.getElementById('codeNow');
+    const codeBody = document.getElementById('codeBody');
+    let defended = false;
+
+    const esc = (t) => t.replace(/[&<>"']/g, (ch) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+    const isNote = (l) => l.trim() === '' || l.trim().startsWith('//');
+
+    // もう片方に無い行 = 差分。脆弱側は「-」、対策側は「+」で示す。
+    function snipHtml(kind, lines, other) {
+      const otherSet = new Set(other.filter((l) => !isNote(l)).map((l) => l.trim()));
+      const mark = kind === 'vuln' ? '-' : '+';
+      const body = lines.map((l) => {
+        const note = isNote(l);
+        const diff = !note && !otherSet.has(l.trim());
+        return '<span class="ln' + (note ? ' note' : '') + (diff ? ' diff' : '') +
+          '" data-mark="' + (diff ? mark : ' ') + '">' + (esc(l) || ' ') + '</span>';
+      }).join('');
+      const name = kind === 'vuln' ? '★ 脆弱' : '✅ 対策 (?defense=1)';
+      return '<div class="snip ' + kind + '" data-kind="' + kind + '">' +
+        '<div class="label"><span class="name">' + name + '</span><span class="running">実行中</span></div>' +
+        '<pre>' + body + '</pre></div>';
+    }
+
+    function renderCode() {
+      const s = SNIPPETS[activeId];
+      if (!s) {
+        codeWhere.textContent = '';
+        codePoint.textContent = 'このモジュールのコード片はまだありません。';
+        codeNow.textContent = '';
+        codeBody.innerHTML = '';
+        return;
+      }
+      codeWhere.textContent = s.where;
+      codePoint.textContent = s.point;
+      codeBody.innerHTML = snipHtml('vuln', s.vuln, s.defense) + snipHtml('defense', s.defense, s.vuln);
+      applyDefense();
+    }
+
+    function applyDefense() {
+      for (const el of codeBody.querySelectorAll('.snip')) {
+        el.classList.toggle('active', (el.dataset.kind === 'defense') === defended);
+      }
+      codeNow.textContent = 'デモはいま ' + (defended ? '対策版' : '脆弱版') +
+        ' で動作中（右下の「🛡 対策を有効化」と連動）';
+    }
+
+    // デモ(iframe)からのトグル通知。表示中のデモから来たものだけ受け付ける。
+    window.addEventListener('message', (e) => {
+      if (e.source !== demo.contentWindow) return;
+      const d = e.data;
+      if (!d || d.type !== 'lab:defense') return;
+      defended = Boolean(d.on);
+      applyDefense();
+    });
+    // デモを読み込み直すとトグルは初期状態(脆弱)に戻るので、表示も戻す。
+    demo.addEventListener('load', () => {
+      defended = false;
+      applyDefense();
+      mountControls();
+    });
+
+    // デモ内の学習用コントロール(.panel)を右下の領域へ移す。
+    //   同一オリジンなので adoptNode で DOM ごと移動でき、デモ側のイベントリスナ
+    //   (トグルで body のクラスを切り替える等)はデモの document に対してそのまま働く。
+    const controls = document.getElementById('controls');
+    const controlsSlot = document.getElementById('controlsSlot');
+    function mountControls() {
+      controlsSlot.replaceChildren();
+      controls.hidden = true;
+      let panel = null;
+      try {
+        panel = demo.contentDocument && demo.contentDocument.querySelector('.panel');
+      } catch { panel = null; } // 別オリジン等で読めない場合はデモ内に残す
+      if (!panel) return;
+      controlsSlot.appendChild(document.adoptNode(panel));
+      controls.hidden = false;
+      // 移したトグルの現在値を右ペインのコード表示にも反映する。
+      const def = panel.querySelector('#toggleDefense');
+      if (def) { defended = def.checked; applyDefense(); }
+    }
+
+    // コードペインの表示/非表示(閲覧者ごとの好みとして保存)。
+    function setCodeVisible(on) {
+      document.body.classList.toggle('hide-code', !on);
+      codeBtn.setAttribute('aria-pressed', String(on));
+      try { localStorage.setItem('lab:code', on ? '1' : '0'); } catch {}
+    }
+    codeBtn.addEventListener('click', () =>
+      setCodeVisible(document.body.classList.contains('hide-code')));
+    try { if (localStorage.getItem('lab:code') === '0') setCodeVisible(false); } catch {}
 
     // サイドバーの進捗メタ
     const readyMods = MODULES.filter((m) => m.status === 'ready');
@@ -354,6 +579,7 @@
       if (mod.status !== 'ready') {
         demo.hidden = true; demo.removeAttribute('src');
         empty.hidden = false;
+        controlsSlot.replaceChildren(); controls.hidden = true;
       } else {
         empty.hidden = true; demo.hidden = false;
         demo.src = mod.src;
@@ -362,6 +588,8 @@
       location.hash = mod.id;
       updateTopbar(mod);
       render();
+      defended = false;
+      renderCode();
     }
 
     function render() {
@@ -405,6 +633,8 @@
         openBtn.click();
       } else if (e.key === 'r' || e.key === 'R') {
         reloadBtn.click();
+      } else if (e.key === 'c' || e.key === 'C') {
+        codeBtn.click();
       }
     });
 

@@ -99,6 +99,8 @@
       return u.toString();
     };
     defense.addEventListener('change', () => {
+      // ラボ画面(親)へ通知し、右ペインのコード表示を 脆弱/対策 で連動させる。
+      if (parent !== window) parent.postMessage({ type: 'lab:defense', on: defense.checked }, '*');
       const on = defense.checked;
       document.body.classList.toggle('show-defense', on);
       statusEl.textContent = on ? '対策済み（execFile + 入力検証）' : '脆弱（シェル連結）';

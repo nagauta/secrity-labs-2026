@@ -113,6 +113,8 @@
       return u.toString();
     };
     defense.addEventListener('change', () => {
+      // ラボ画面(親)へ通知し、右ペインのコード表示を 脆弱/対策 で連動させる。
+      if (parent !== window) parent.postMessage({ type: 'lab:defense', on: defense.checked }, '*');
       const on = defense.checked;
       document.body.classList.toggle('defended', on);
       loginForm.action = withDefense(loginForm.action, on);

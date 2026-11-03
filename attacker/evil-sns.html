@@ -197,7 +197,7 @@
   </div>
 
   <p style="color:#888;font-size:13px;margin-top:30px">
-    ※ これは教育用デモです。右上のトグルで仕掛けの可視化と、対策後の挙動を切り替えられます。
+    ※ これは教育用デモです。学習用コントロールのトグルで仕掛けの可視化と、対策後の挙動を切り替えられます。
   </p>
 
   <script>
@@ -250,6 +250,8 @@
     }
 
     defense.addEventListener('change', () => {
+      // ラボ画面(親)へ通知し、右ペインのコード表示を 脆弱/対策 で連動させる。
+      if (parent !== window) parent.postMessage({ type: 'lab:defense', on: defense.checked }, '*');
       document.body.classList.toggle('defended', defense.checked);
       badge.textContent = defense.checked ? '対策済み（攻撃失敗）' : '脆弱（攻撃成立）';
       badge.className = 'status ' + (defense.checked ? 'safe' : 'vuln');

@@ -92,6 +92,7 @@ secrity-labs-2026/
     ├── tsconfig.json
     ├── serve.ts       ← 同ディレクトリの .html を配信（"/" は index.html）
     ├── index.html     ← ラボのシェル。左サイドバーから攻撃の種類を選ぶ
+    ├── snippets.js    ← ラボ画面右ペインの「脆弱/対策」最小コード片（app.ts と一致をテストで検査）
     └── evil-sns.html  ← ライクジャッキング（架空SNS「つなぐ」）。トグルで可視化＋狙い解説
 ```
 

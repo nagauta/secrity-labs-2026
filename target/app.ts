@@ -59,9 +59,10 @@ const modeOf = (c: Context) => (isDefended(c) ? 'defended' : 'vulnerable');
 //
 //   == 対策 (どちらか一方を返せば攻撃は成立しなくなる) ==
 //   `?defense=1` 付きのリクエストにだけ、下のミドルウェアがフレーム化禁止ヘッダを付ける。
-//   (本番なら条件なしで全レスポンスに付けるべきもの)
+//   (本番なら条件なしで全レスポンスに付けるべきもの。このラボでは XSS デモが標的ページを
+//    iframe で表示するため、対象をクリックジャッキングの標的 /sns/widget に絞っている)
 // ---------------------------------------------------------------------------
-app.use('*', async (c, next) => {
+app.use('/sns/widget', async (c, next) => {
   await next();
   if (!isDefended(c)) return; // ★ 脆弱: 既定ではヘッダを付けない
   // ✅ 対策A: 古くからある専用ヘッダ。iframe 埋め込みを全面拒否。
@@ -252,8 +253,14 @@ app.post('/sns/profile', async (c) => {
 app.get('/sns/search', (c) => {
   const raw = c.req.query('q') ?? '';
   const defended = isDefended(c);
-  // ★ 脆弱: そのまま展開 / ✅ 対策: escapeHtml してから展開
-  const q = defended ? escapeHtml(raw) : raw;
+  let q: string;
+  if (defended) {
+    // ✅ 対策: 出力前に HTML エスケープ。<script> はただの文字列になる。
+    q = escapeHtml(raw);
+  } else {
+    // ★ 脆弱: 入力をそのまま HTML に埋め込む。
+    q = raw;
+  }
   return c.html(`<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><title>「${q}」の検索結果 | つなぐ</title>
 <style>body { font-family: sans-serif; padding:24px; max-width:640px; }</style></head>

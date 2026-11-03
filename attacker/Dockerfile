@@ -7,7 +7,7 @@ COPY package.json ./
 RUN npm install
 
 COPY tsconfig.json serve.ts ./
-COPY *.html ./
+COPY *.html *.js ./
 
 EXPOSE 9090
 CMD ["npm", "start"]
