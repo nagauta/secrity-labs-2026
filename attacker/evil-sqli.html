@@ -43,9 +43,10 @@
     <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
     <div class="hint">入力をSQLに連結しているために成立する注入の筋書きを表示します。</div>
     <hr>
-    状態: <span class="status vuln">脆弱（SQL連結）</span>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策を有効化（プレースホルダ）</label>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。同じペイロードで結果を比べてみてください。</div>
     <hr>
-    <div class="hint">対策はプレースホルダ（パラメータバインド）。<code>app.ts</code> のコメント参照。</div>
+    状態: <span class="status vuln" id="status">脆弱（SQL連結）</span>
   </div>
 
   <div class="wrap">
@@ -56,7 +57,7 @@
       <h3>① 認証バイパス（成りすまし）</h3>
       <p style="font-size:13px;color:#bbb">ユーザー名欄に <span class="payload">admin'--</span> を入れると、パスワード照合がコメントで無効化され、<b>パスワード不要で admin としてログイン</b>できます。</p>
       <!-- 標的へ直接 POST。応答(JSON)を新しいタブで開いて ok:true, loggedInAs:admin を確認。 -->
-      <form action="http://localhost:8080/sns/login" method="POST" target="_blank">
+      <form id="loginForm" action="http://localhost:8080/sns/login" method="POST" target="_blank">
         <label>ユーザー名</label>
         <input name="username" value="admin'--">
         <label>パスワード</label>
@@ -68,7 +69,7 @@
     <div class="card">
       <h3>② UNION でデータ窃取</h3>
       <p style="font-size:13px;color:#bbb">会員検索に <span class="payload">' UNION SELECT ... --</span> を注入すると、本来見えない<b>平文パスワードや秘密メモ</b>まで吸い出せます。</p>
-      <a class="leak" target="_blank" rel="noopener"
+      <a class="leak" id="leakLink" target="_blank" rel="noopener"
          href="http://localhost:8080/sns/members?name=%27%20UNION%20SELECT%20id%2C%20username%20%7C%7C%20%27%3A%27%20%7C%7C%20password%2C%20email%2C%20secret%20FROM%20members%20--">
         http://localhost:8080/sns/members?name=' UNION SELECT id, username||':'||password, email, secret FROM members --
       </a>
@@ -89,6 +90,8 @@
       <p><code>WHERE username = ? AND password = ?</code> のように<b>プレースホルダ</b>で値を渡せば、
          入力は必ず「ただのデータ」として扱われ、<code>admin'--</code> や <code>UNION</code> は SQL として
          解釈されません。文字列連結をやめることが根本対策です。</p>
+      <p>この状態で①②を試すと、①は <code>401 {ok:false}</code>、②は <code>rows: []</code> になります。
+         応答の <code>sql</code> 欄に入力値が埋め込まれず <code>?</code> のままなことも確認してください。</p>
     </div>
   </div>
 
@@ -96,6 +99,26 @@
     const intent = document.getElementById('toggleIntent');
     intent.addEventListener('change', () => {
       document.body.classList.toggle('show-intent', intent.checked);
+    });
+
+    // 対策トグル: 標的へのリクエストURLに ?defense=1 を付け外しする。
+    const defense = document.getElementById('toggleDefense');
+    const status = document.getElementById('status');
+    const loginForm = document.getElementById('loginForm');
+    const leakLink = document.getElementById('leakLink');
+    const withDefense = (url, on) => {
+      const u = new URL(url);
+      if (on) u.searchParams.set('defense', '1');
+      else u.searchParams.delete('defense');
+      return u.toString();
+    };
+    defense.addEventListener('change', () => {
+      const on = defense.checked;
+      document.body.classList.toggle('defended', on);
+      loginForm.action = withDefense(loginForm.action, on);
+      leakLink.href = withDefense(leakLink.href, on);
+      status.textContent = on ? '対策済み（プレースホルダ）' : '脆弱（SQL連結）';
+      status.className = on ? 'status safe' : 'status vuln';
     });
   </script>
 </body>

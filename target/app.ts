@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { cors } from 'hono/cors';
 
 const execAsync = promisify(exec);
@@ -266,6 +266,7 @@ app.post('/sns/profile/reset', (c) => {
 //     (2) 会員検索: `' UNION SELECT ... --` で平文パスワードや秘密メモを丸ごと吸い出す。
 //
 // 脆弱点: プレースホルダ(パラメータバインド)を使わず、`'${input}'` と連結している。
+// 対策の確認: 各エンドポイントに `?defense=1` を付けると対策済み実装に切り替わる。
 // ===========================================================================
 
 // やられ役の会員DB(メモリ上の SQLite)。※ パスワード平文保存も「やられ」仕様。
@@ -284,44 +285,72 @@ db.exec(`
     ('admin', 'S0ny-pwn3d!', 'admin@tsunagu.example', '管理者用バックアップ鍵: ABCD-1234');
 `);
 
-// --- 対策(プレースホルダ/パラメータバインド)。これなら注入は成立しない ---
-//   const row = db.prepare(
-//     'SELECT * FROM members WHERE username = ? AND password = ?',
-//   ).get(username, password);
-//   会員検索も db.prepare('... WHERE username = ?').all(name) とする。
-
 type Member = { id: number; username: string; password: string; email: string; secret: string };
 
-// 会員ログイン。★ 入力を SQL にそのまま連結(脆弱)。
-//   username = admin'--  → パスワード条件がコメントアウトされ成りすまし。
-//   username = ' OR '1'='1  → 全件ヒットの先頭として最初のユーザーでログイン。
+// 対策フラグ: `?defense=1` を付けたリクエストだけ「対策済み」の実装で処理する。
+//   同じペイロードを 脆弱/対策済み で撃ち比べられるようにするための学習用スイッチ。
+//   (フォーム送信や直接URLのデモでも使えるよう、ヘッダではなくクエリで受け取る)
+const isDefended = (c: Context) => c.req.query('defense') === '1';
+
+// 会員ログイン。
+//   脆弱: 入力を SQL にそのまま連結。
+//     username = admin'--  → パスワード条件がコメントアウトされ成りすまし。
+//     username = ' OR '1'='1' --  → 全件ヒットの先頭として最初のユーザーでログイン。
+//   対策: プレースホルダ(パラメータバインド)。入力は常に「データ」として扱われる。
 app.post('/sns/login', async (c) => {
   const body = await c.req.parseBody();
   const username = typeof body.username === 'string' ? body.username : '';
   const password = typeof body.password === 'string' ? body.password : '';
-  const sql = `SELECT * FROM members WHERE username = '${username}' AND password = '${password}'`;
+  const mode = isDefended(c) ? 'defended' : 'vulnerable';
+
+  let sql: string;
+  let run: () => Member | undefined;
+  if (mode === 'defended') {
+    // ✅ 対策: 値は ? で別渡し。SQL 文の構造は入力で変わらない。
+    sql = 'SELECT * FROM members WHERE username = ? AND password = ?';
+    run = () => db.prepare(sql).get(username, password) as Member | undefined;
+  } else {
+    // ★ 脆弱: 入力をそのまま連結。入力次第で SQL 文の構造が書き換わる。
+    sql = `SELECT * FROM members WHERE username = '${username}' AND password = '${password}'`;
+    run = () => db.prepare(sql).get() as Member | undefined;
+  }
+
   try {
-    const row = db.prepare(sql).get() as Member | undefined;
+    const row = run();
     if (row) {
-      return c.json({ ok: true, loggedInAs: row.username, sql });
+      return c.json({ ok: true, mode, loggedInAs: row.username, sql });
     }
-    return c.json({ ok: false, sql }, 401);
+    return c.json({ ok: false, mode, sql }, 401);
   } catch (e) {
     // 注入で構文エラーになった場合でも、学習用に実行SQLとエラーを見せる。
-    return c.json({ ok: false, sql, error: String(e) }, 400);
+    return c.json({ ok: false, mode, sql, error: String(e) }, 400);
   }
 });
 
-// 会員検索。★ ?name を SQL にそのまま連結(脆弱)。UNION でカラムを揃えて窃取できる。
-//   name = ' UNION SELECT id, username || ':' || password, email, secret FROM members --
+// 会員検索。
+//   脆弱: ?name を SQL にそのまま連結。UNION でカラムを揃えて窃取できる。
+//     name = ' UNION SELECT id, username || ':' || password, email, secret FROM members --
+//   対策: プレースホルダ。上の name は「そういう名前の会員」として検索され 0 件になる。
 app.get('/sns/members', (c) => {
   const name = c.req.query('name') ?? '';
-  const sql = `SELECT id, username, email, secret FROM members WHERE username = '${name}'`;
+  const mode = isDefended(c) ? 'defended' : 'vulnerable';
+
+  let sql: string;
+  let run: () => unknown[];
+  if (mode === 'defended') {
+    // ✅ 対策
+    sql = 'SELECT id, username, email, secret FROM members WHERE username = ?';
+    run = () => db.prepare(sql).all(name);
+  } else {
+    // ★ 脆弱
+    sql = `SELECT id, username, email, secret FROM members WHERE username = '${name}'`;
+    run = () => db.prepare(sql).all();
+  }
+
   try {
-    const rows = db.prepare(sql).all();
-    return c.json({ ok: true, sql, rows });
+    return c.json({ ok: true, mode, sql, rows: run() });
   } catch (e) {
-    return c.json({ ok: false, sql, error: String(e) }, 400);
+    return c.json({ ok: false, mode, sql, error: String(e) }, 400);
   }
 });
 

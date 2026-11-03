@@ -2,7 +2,8 @@
 // SQLインジェクション モジュールのテスト
 // ----------------------------------------------------------------------------
 // 「脆弱であること」= 入力を SQL に連結しているため、認証バイパスと UNION による
-// データ窃取が成立することを固定する。対策(プレースホルダ)を入れると落ちる想定。
+// データ窃取が成立することを固定する。あわせて `?defense=1`(対策済み実装)では
+// 同じペイロードが無効化されることも確認する。
 // 実在事例: 2011年 Sony Pictures の SQLi 漏えい(平文パスワードを含む約100万件)。
 // ============================================================================
 
@@ -69,6 +70,49 @@ describe('SQLi - UNION によるデータ窃取(脆弱性)', () => {
     const res = await app.request('/sns/members?name=you');
     const json = (await res.json()) as { ok: boolean; rows: Array<{ username: string }> };
     expect(json.ok).toBe(true);
+    expect(json.rows).toHaveLength(1);
+    expect(json.rows[0].username).toBe('you');
+  });
+});
+
+describe('SQLi - 対策済み(?defense=1)', () => {
+  it('正しい資格情報なら対策済みでもログインできる', async () => {
+    const res = await app.request(
+      '/sns/login?defense=1',
+      form({ username: 'you', password: 'password123' }),
+    );
+    const json = (await res.json()) as { ok: boolean; mode: string; loggedInAs?: string };
+    expect(res.status).toBe(200);
+    expect(json.mode).toBe('defended');
+    expect(json.loggedInAs).toBe('you');
+  });
+
+  it.each(["admin'--", "' OR '1'='1' --"])('%s では認証バイパスできない', async (username) => {
+    const res = await app.request('/sns/login?defense=1', form({ username, password: 'nope' }));
+    const json = (await res.json()) as { ok: boolean; mode: string; sql: string };
+    expect(res.status).toBe(401);
+    expect(json.ok).toBe(false);
+    expect(json.mode).toBe('defended');
+    // 実行 SQL に入力値は埋め込まれていない(プレースホルダのまま)。
+    expect(json.sql).toContain('?');
+    expect(json.sql).not.toContain(username);
+  });
+
+  it('UNION を注入しても何も漏れない(ただの名前として検索され 0 件)', async () => {
+    const payload = "' UNION SELECT id, username || ':' || password, email, secret FROM members --";
+    const res = await app.request(`/sns/members?defense=1&name=${encodeURIComponent(payload)}`);
+    const json = (await res.json()) as { ok: boolean; mode: string; rows: unknown[] };
+    expect(res.status).toBe(200);
+    expect(json.mode).toBe('defended');
+    expect(json.rows).toHaveLength(0);
+    const text = JSON.stringify(json);
+    expect(text).not.toContain('password123');
+    expect(text).not.toContain('S0ny-pwn3d!');
+  });
+
+  it('通常の検索は対策済みでも同じ結果を返す', async () => {
+    const res = await app.request('/sns/members?defense=1&name=you');
+    const json = (await res.json()) as { rows: Array<{ username: string }> };
     expect(json.rows).toHaveLength(1);
     expect(json.rows[0].username).toBe('you');
   });

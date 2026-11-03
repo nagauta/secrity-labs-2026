@@ -139,6 +139,10 @@ curl -X POST http://localhost:8080/sns/reset
    （`{ok:true, loggedInAs:"admin"}`）。
 3. **UNION 窃取**: 会員検索リンク（`' UNION SELECT ... --`）を踏むと、本来見えない平文パスワードや
    秘密メモ（例: 管理者用バックアップ鍵）まで JSON で漏れる。
+4. **対策と比べる**: 右上の「🛡 対策を有効化（プレースホルダ）」をオンにして ②③ をやり直す。
+   標的へのリクエストに `?defense=1` が付き、対策済み実装で処理される。ログインは `401`、
+   検索は `rows: []` になり攻撃が失敗する（応答の `sql` が `?` のままなことも確認できる）。
+   トグルを使わずに `curl 'http://localhost:8080/sns/members?defense=1&name=...'` のように直接付けてもよい。
 
 ### なぜ成立するのか（脆弱点）
 
@@ -149,7 +153,8 @@ curl -X POST http://localhost:8080/sns/reset
 
 `db.prepare('... WHERE username = ? AND password = ?').get(u, p)` のように**プレースホルダ
 （パラメータバインド）**で値を渡せば、入力は必ず「データ」として扱われ、`admin'--` や
-`UNION` は SQL として解釈されません（`app.ts` のコメント参照）。
+`UNION` は SQL として解釈されません。`app.ts` では脆弱版と対策版が同じハンドラ内に並んでおり、
+`?defense=1` で切り替わります。
 
 ## モジュール4: OSコマンドインジェクション
 
