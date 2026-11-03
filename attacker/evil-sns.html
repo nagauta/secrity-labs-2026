@@ -37,8 +37,8 @@
       background: #fff;
     }
 
-    /* 対策ON時に表示する「ブラウザがフレーム表示を拒否した」プレースホルダ。
-       実際の X-Frame-Options / CSP では iframe が空白になり、クリックも奪えない。 */
+    /* 対策ON時の注記。iframe 自体は ?defense=1 付きで実際に読み込まれ、標的の
+       X-Frame-Options / CSP によってブラウザが表示を拒否する(オーバーレイ表示で確認できる)。 */
     .blocked {
       position: absolute; top: 46px; left: 131px; width: 360px; height: 150px;
       z-index: 2; display: none; pointer-events: none;   /* クリックは奪わない(対策済みなので) */
@@ -47,7 +47,7 @@
       font-size: 12px; line-height:1.5; padding: 10px; box-sizing:border-box;
       align-items: center; justify-content: center; text-align:center;
     }
-    body.defended .blocked { display: flex; }
+    body.defended:not(.show-overlay) .blocked { display: flex; }
     /* 対策ONでは攻撃者のオーバーレイが無いので、再生ボタンを前面に出して素直に押せる。 */
     body.defended .play { z-index: 3; }
 
@@ -132,8 +132,9 @@
       🛡 対策を有効化（フレーム化を拒否）
     </label>
     <div class="hint">
-      標的が <code>X-Frame-Options: DENY</code> を返した状態を再現します。
-      いいねボタンが埋め込めなくなり、再生を押しても乗っ取られません。
+      ウィジェットを <code>?defense=1</code> 付きで読み込み、標的に実際に
+      <code>X-Frame-Options: DENY</code> を返させます。ブラウザが埋め込みを拒否するので、
+      再生を押しても乗っ取られません（オーバーレイ表示で拒否された iframe を確認できます）。
     </div>
     <hr>
     状態: <span id="statusBadge" class="status vuln">脆弱（攻撃成立）</span>
@@ -191,7 +192,7 @@
     <p style="margin:10px 0 0">
       すると透明な重ね合わせが成立せず、<b>再生を押してもクリックは奪われません</b>。
       いいねは盗まれず、`http://localhost:8080/sns` のタイムラインも増えません。
-      このデモでは、実際にヘッダで拒否された状態を疑似的に再現しています。
+      このデモでは標的に <code>?defense=1</code> を付けて読み込み、実際にヘッダで拒否させています。
     </p>
   </div>
 
@@ -232,6 +233,7 @@
 
     // シーンを初期状態へ戻す(モード切替時に呼ぶ)。
     let attacked = false;
+    const WIDGET_URL = overlay.src;
     function resetScene() {
       attacked = false;
       video.classList.remove('playing');
@@ -239,11 +241,12 @@
       const bar = video.querySelector('.vbar');
       if (bar) bar.innerHTML = '<i></i>';
       playBtn.style.display = '';
-      if (defense.checked) {
-        overlay.style.display = 'none';   // 対策ON: iframe は拒否され表示されない
-      } else {
-        overlay.style.display = '';       // 対策OFF: iframe が重なる(脆弱)
-      }
+      overlay.style.display = '';
+      // 対策ON: ?defense=1 付きで読み込む → 標的がフレーム化禁止ヘッダを返し、ブラウザが表示を拒否する。
+      // 対策OFF: ヘッダ無しで読み込まれ、透明な iframe が再生ボタンに重なる(脆弱)。
+      const u = new URL(WIDGET_URL);
+      if (defense.checked) u.searchParams.set('defense', '1');
+      overlay.src = u.toString();
     }
 
     defense.addEventListener('change', () => {

@@ -53,3 +53,12 @@ describe('clickjacking / likejacking', () => {
     expect(json.likedFeed).toEqual([]);
   });
 });
+
+describe('clickjacking - 対策済み(?defense=1)', () => {
+  it('/sns/widget がフレーム化禁止ヘッダを返す(iframe で重ねられない)', async () => {
+    const res = await app.request('/sns/widget?title=test&defense=1');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('content-security-policy')).toBe("frame-ancestors 'none'");
+  });
+});

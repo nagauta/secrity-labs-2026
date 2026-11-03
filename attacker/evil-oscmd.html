@@ -25,6 +25,7 @@
     .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
     .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; }
     .status.vuln { background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
 
     .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px 0; }
     .intent { background:#1e1e1e; border:1px solid #ff5252; }
@@ -41,10 +42,11 @@
   <div class="panel">
     <h2>🔎 学習用コントロール</h2>
     <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
-    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策を有効化（シェルを介さない + 入力検証）</label>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。同じ入力でコマンドが動かなくなることを確認できます。</div>
     <div class="hint">入力がシェルに渡るため <code>;</code> <code>&&</code> でコマンド連結ができます。</div>
     <hr>
-    状態: <span class="status vuln">脆弱（シェル連結）</span>
+    状態: <span class="status vuln" id="status">脆弱（シェル連結）</span>
   </div>
 
   <div class="wrap">
@@ -89,17 +91,31 @@
     const run = document.getElementById('run');
 
     intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
-    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+    const statusEl = document.getElementById('status');
+    // 対策トグル: 標的へのリクエストに ?defense=1 を付けるかどうか。
+    const q = (url) => {
+      const u = new URL(url);
+      if (defense.checked) u.searchParams.set('defense', '1');
+      return u.toString();
+    };
+    defense.addEventListener('change', () => {
+      const on = defense.checked;
+      document.body.classList.toggle('show-defense', on);
+      statusEl.textContent = on ? '対策済み（execFile + 入力検証）' : '脆弱（シェル連結）';
+      statusEl.className = on ? 'status safe' : 'status vuln';
+    });
 
     run.addEventListener('click', async () => {
       out.hidden = false;
       out.textContent = '実行中…';
       try {
         // 標的の診断APIを叩く(ラボは localhost 同士で CORS 制約なく読める想定)。
-        const url = 'http://localhost:8080/admin/net/ping?host=' + encodeURIComponent(host.value);
+        const url = q('http://localhost:8080/admin/net/ping?host=' + encodeURIComponent(host.value));
         const res = await fetch(url);
         const json = await res.json();
-        out.textContent = '$ ' + json.cmd + '\n\n' + (json.output || json.error || '(出力なし)');
+        out.textContent = res.status === 400
+          ? '⛔ 拒否されました(' + res.status + '): ' + json.error + '\n入力検証で弾かれ、コマンドは実行されていません。'
+          : '$ ' + json.cmd + '\n\n' + (json.output || json.error || '(出力なし)');
       } catch (e) {
         out.textContent =
           'リクエストに失敗しました。標的(localhost:8080)が起動しているか確認してください。\n' +

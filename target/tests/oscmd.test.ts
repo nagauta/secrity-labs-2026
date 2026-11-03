@@ -44,3 +44,27 @@ describe('OSコマンドインジェクション (/admin/net/ping)', () => {
     expect(json.cmd).toBe('ping -c 1 127.0.0.1');
   });
 });
+
+describe('OSコマンドインジェクション - 対策済み(?defense=1)', () => {
+  it.each([
+    '127.0.0.1; echo PWNED-OSCMD-INJECTION',
+    '127.0.0.1 && echo PWNED',
+    '127.0.0.1 | id',
+    '$(id)',
+    '`id`',
+  ])('%s は入力検証で拒否され、コマンドは実行されない', async (host) => {
+    const res = await app.request(`/admin/net/ping?defense=1&host=${encodeURIComponent(host)}`);
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { ok: boolean; mode: string; output?: string };
+    expect(json.ok).toBe(false);
+    expect(json.mode).toBe('defended');
+    expect(json.output).toBeUndefined();
+  });
+
+  it('正しいホスト名はシェルを介さず execFile で実行される', async () => {
+    const res = await app.request('/admin/net/ping?defense=1&host=127.0.0.1');
+    const json = (await res.json()) as { mode: string; cmd: string };
+    expect(json.mode).toBe('defended');
+    expect(json.cmd).toBe(`execFile('ping', ['-c', '1', "127.0.0.1"])`);
+  });
+});

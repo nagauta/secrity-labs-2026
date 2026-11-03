@@ -24,6 +24,7 @@
     .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
     .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
     .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
 
     .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px 0; }
     .intent { background:#1e1e1e; border:1px solid #ff5252; }
@@ -40,10 +41,11 @@
   <div class="panel">
     <h2>🔎 学習用コントロール</h2>
     <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
-    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策を有効化（公開範囲の検証）</label>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。<code>../</code> で外へ出ようとすると 400 で拒否されます。</div>
     <div class="hint"><code>../</code> を重ねて公開ディレクトリの外へ出られます。</div>
     <hr>
-    状態: <span class="status">脆弱（範囲チェック無し）</span>
+    状態: <span class="status vuln" id="status">脆弱（範囲チェック無し）</span>
   </div>
 
   <div class="wrap">
@@ -90,7 +92,19 @@
     const out = document.getElementById('out');
 
     intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
-    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+    const statusEl = document.getElementById('status');
+    // 対策トグル: 標的へのリクエストに ?defense=1 を付けるかどうか。
+    const q = (url) => {
+      const u = new URL(url);
+      if (defense.checked) u.searchParams.set('defense', '1');
+      return u.toString();
+    };
+    defense.addEventListener('change', () => {
+      const on = defense.checked;
+      document.body.classList.toggle('show-defense', on);
+      statusEl.textContent = on ? '対策済み（範囲チェック）' : '脆弱（範囲チェック無し）';
+      statusEl.className = on ? 'status safe' : 'status vuln';
+    });
 
     for (const b of document.querySelectorAll('.quick button')) {
       b.addEventListener('click', () => { name.value = b.dataset.name; });
@@ -99,11 +113,11 @@
     document.getElementById('open').addEventListener('click', async () => {
       out.hidden = false;
       out.textContent = '取得中…';
-      const url = 'http://localhost:8080/sns/files?name=' + encodeURIComponent(name.value);
+      const url = q('http://localhost:8080/sns/files?name=' + encodeURIComponent(name.value));
       try {
         const res = await fetch(url);
         const text = await res.text();
-        out.textContent = 'GET ' + url + '\n\n' + text;
+        out.textContent = 'GET ' + url + '  → ' + res.status + '\n\n' + text;
       } catch (e) {
         out.textContent = 'リクエストに失敗しました。直接開く: ' + url + '\n\n' + e;
       }

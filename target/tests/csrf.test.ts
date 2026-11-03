@@ -52,3 +52,36 @@ describe('CSRF (/account/email)', () => {
     expect(json.email).toBe('you@tsunagu.example');
   });
 });
+
+describe('CSRF - 対策済み(?defense=1, Origin/Referer 検査)', () => {
+  it('攻撃者サイトの Origin からの変更は 403 で拒否され、メールは変わらない', async () => {
+    await app.request('/account/reset', { method: 'POST' });
+    const res = await formPost(
+      '/account/email?defense=1',
+      { email: 'takeover@evil.example' },
+      { origin: 'http://localhost:9090' },
+    );
+    expect(res.status).toBe(403);
+    const account = (await (await app.request('/account')).json()) as { email: string };
+    expect(account.email).toBe('you@tsunagu.example');
+  });
+
+  it('送信元(Origin/Referer)が分からないリクエストも拒否する(fail closed)', async () => {
+    await app.request('/account/reset', { method: 'POST' });
+    const res = await formPost('/account/email?defense=1', { email: 'x@evil.example' });
+    expect(res.status).toBe(403);
+  });
+
+  it('自サイト(localhost:8080)からの変更は通る', async () => {
+    await app.request('/account/reset', { method: 'POST' });
+    const res = await formPost(
+      '/account/email?defense=1',
+      { email: 'new@tsunagu.example' },
+      { origin: 'http://localhost:8080' },
+    );
+    expect(res.status).toBe(200);
+    const account = (await (await app.request('/account')).json()) as { email: string };
+    expect(account.email).toBe('new@tsunagu.example');
+    await app.request('/account/reset', { method: 'POST' });
+  });
+});

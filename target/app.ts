@@ -13,15 +13,16 @@
 //   返さないため、任意の外部サイトが <iframe> で透明に重ねられてしまう。
 // ============================================================================
 
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { type Context, Hono } from 'hono';
 import { cors } from 'hono/cors';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const app = new Hono();
 
@@ -43,21 +44,31 @@ export const app = new Hono();
 app.use('*', cors({ origin: '*', allowHeaders: ['X-User', 'Content-Type'] }));
 
 // ---------------------------------------------------------------------------
+// 対策フラグ(全モジュール共通): `?defense=1` を付けたリクエストだけ「対策済み」の
+//   実装で処理する。同じペイロードを 脆弱/対策済み で撃ち比べるための学習用スイッチ。
+//   フラグなし(既定)は常に脆弱版。フォーム送信・iframe・直接URLのデモでも使えるよう、
+//   ヘッダではなくクエリで受け取る。各ハンドラ内で 脆弱版(★) と 対策版(✅) を並べてある。
+// ---------------------------------------------------------------------------
+const isDefended = (c: Context) => c.req.query('defense') === '1';
+const modeOf = (c: Context) => (isDefended(c) ? 'defended' : 'vulnerable');
+
+// ---------------------------------------------------------------------------
 // ★ 脆弱ポイントの核心 ★
 //   本来ここで、全レスポンス (少なくとも /sns/widget) にフレーム化禁止ヘッダを
 //   付ければクリックジャッキングは防げる。このラボでは「あえて付けていない」。
 //
-//   == 対策 (どちらか一方を有効化すれば攻撃は成立しなくなる) ==
-//   下の app.use(...) のコメントを外して再起動し、同じ攻撃が失敗することを確認せよ。
+//   == 対策 (どちらか一方を返せば攻撃は成立しなくなる) ==
+//   `?defense=1` 付きのリクエストにだけ、下のミドルウェアがフレーム化禁止ヘッダを付ける。
+//   (本番なら条件なしで全レスポンスに付けるべきもの)
 // ---------------------------------------------------------------------------
-//
-// app.use('*', async (c, next) => {
-//   await next();
-//   // 対策A: 古くからある専用ヘッダ。iframe 埋め込みを全面拒否。
-//   c.header('X-Frame-Options', 'DENY');
-//   // 対策B: 現代的な方法。frame-ancestors 'none' で祖先フレームを一切許可しない。
-//   c.header('Content-Security-Policy', "frame-ancestors 'none'");
-// });
+app.use('*', async (c, next) => {
+  await next();
+  if (!isDefended(c)) return; // ★ 脆弱: 既定ではヘッダを付けない
+  // ✅ 対策A: 古くからある専用ヘッダ。iframe 埋め込みを全面拒否。
+  c.header('X-Frame-Options', 'DENY');
+  // ✅ 対策B: 現代的な方法。frame-ancestors 'none' で祖先フレームを一切許可しない。
+  c.header('Content-Security-Policy', "frame-ancestors 'none'");
+});
 
 // トップ: SNSホームへの入口
 app.get('/', (c) => {
@@ -177,16 +188,17 @@ app.post('/sns/reset', (c) => {
 //   - 反射型: /sns/search が ?q をそのまま結果ページに反射する。
 // ===========================================================================
 
-// --- 対策(出力時の HTML エスケープ)。これを使って埋め込めば XSS は成立しない ---
-// function escapeHtml(s: string): string {
-//   return s
-//     .replaceAll('&', '&amp;')
-//     .replaceAll('<', '&lt;')
-//     .replaceAll('>', '&gt;')
-//     .replaceAll('"', '&quot;')
-//     .replaceAll("'", '&#39;');
-// }
-// さらに Content-Security-Policy: script-src 'self' などを併用すると多層防御になる。
+// 対策(出力時の HTML エスケープ)。これを通して埋め込めば XSS は成立しない。
+//   `?defense=1` のときだけ使う。さらに Content-Security-Policy: script-src 'self' などを
+//   併用すると多層防御になる。
+function escapeHtml(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
 type Profile = { handle: string; display: string; bio: string };
 const defaultProfiles = (): Record<string, Profile> => ({
@@ -201,22 +213,27 @@ const defaultProfiles = (): Record<string, Profile> => ({
 });
 let profiles: Record<string, Profile> = defaultProfiles();
 
-// プロフィール表示。★ bio を無エスケープで埋め込む(蓄積型XSSのシンク)。
+// プロフィール表示。
+//   脆弱: bio を無エスケープで埋め込む(蓄積型XSSのシンク)。
+//   対策: escapeHtml で文字列として埋め込む。
 app.get('/sns/users/:name', (c) => {
   const name = c.req.param('name');
   const p = profiles[name];
   if (!p) return c.notFound();
-  // 脆弱: 本来は escapeHtml(p.bio) すべきところを、そのまま展開している。
+  // ★ 脆弱: そのまま展開 / ✅ 対策: escapeHtml してから展開
+  const out = isDefended(c) ? escapeHtml : (v: string) => v;
+  const display = out(p.display);
+  const bio = out(p.bio);
   return c.html(`<!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><title>${p.display} | つなぐ</title>
+<html lang="ja"><head><meta charset="utf-8"><title>${display} | つなぐ</title>
 <style>
   body { font-family: sans-serif; padding:24px; max-width:640px; }
   .bio { background:#f6f8fa; border:1px solid #e1e4e8; border-radius:10px; padding:14px 16px; }
 </style></head>
 <body>
-  <h1>${p.display}</h1>
+  <h1>${display}</h1>
   <h2>ひとこと</h2>
-  <div class="bio">${p.bio}</div>
+  <div class="bio">${bio}</div>
   <p><a href="/sns/users/you">自分のプロフィール</a> / <a href="/sns">タイムライン</a></p>
 </body></html>`);
 });
@@ -229,10 +246,14 @@ app.post('/sns/profile', async (c) => {
   return c.json({ ok: true, bio });
 });
 
-// 検索。★ ?q をそのまま結果ページへ反射する(反射型XSSのシンク)。
+// 検索。
+//   脆弱: ?q をそのまま結果ページへ反射する(反射型XSSのシンク)。
+//   対策: escapeHtml で文字列として埋め込む。
 app.get('/sns/search', (c) => {
-  const q = c.req.query('q') ?? '';
-  // 脆弱: 本来は escapeHtml(q) すべきところを、そのまま展開している。
+  const raw = c.req.query('q') ?? '';
+  const defended = isDefended(c);
+  // ★ 脆弱: そのまま展開 / ✅ 対策: escapeHtml してから展開
+  const q = defended ? escapeHtml(raw) : raw;
   return c.html(`<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><title>「${q}」の検索結果 | つなぐ</title>
 <style>body { font-family: sans-serif; padding:24px; max-width:640px; }</style></head>
@@ -241,6 +262,7 @@ app.get('/sns/search', (c) => {
   <p>「${q}」に一致する投稿は見つかりませんでした。</p>
   <form method="GET" action="/sns/search">
     <input name="q" value="${q}" placeholder="キーワード">
+    ${defended ? '<input type="hidden" name="defense" value="1">' : ''}
     <button type="submit">検索</button>
   </form>
 </body></html>`);
@@ -287,11 +309,6 @@ db.exec(`
 
 type Member = { id: number; username: string; password: string; email: string; secret: string };
 
-// 対策フラグ: `?defense=1` を付けたリクエストだけ「対策済み」の実装で処理する。
-//   同じペイロードを 脆弱/対策済み で撃ち比べられるようにするための学習用スイッチ。
-//   (フォーム送信や直接URLのデモでも使えるよう、ヘッダではなくクエリで受け取る)
-const isDefended = (c: Context) => c.req.query('defense') === '1';
-
 // 会員ログイン。
 //   脆弱: 入力を SQL にそのまま連結。
 //     username = admin'--  → パスワード条件がコメントアウトされ成りすまし。
@@ -301,7 +318,7 @@ app.post('/sns/login', async (c) => {
   const body = await c.req.parseBody();
   const username = typeof body.username === 'string' ? body.username : '';
   const password = typeof body.password === 'string' ? body.password : '';
-  const mode = isDefended(c) ? 'defended' : 'vulnerable';
+  const mode = modeOf(c);
 
   let sql: string;
   let run: () => Member | undefined;
@@ -333,7 +350,7 @@ app.post('/sns/login', async (c) => {
 //   対策: プレースホルダ。上の name は「そういう名前の会員」として検索され 0 件になる。
 app.get('/sns/members', (c) => {
   const name = c.req.query('name') ?? '';
-  const mode = isDefended(c) ? 'defended' : 'vulnerable';
+  const mode = modeOf(c);
 
   let sql: string;
   let run: () => unknown[];
@@ -370,27 +387,39 @@ app.get('/sns/members', (c) => {
 // 脆弱点: ユーザー入力をシェルコマンド文字列へ連結し、`exec`(シェル経由)で実行している。
 // ===========================================================================
 
-// --- 対策(シェルを介さない + 入力検証)。これなら注入は成立しない ---
-//   import { execFile } from 'node:child_process';
-//   // 1) ホスト名として妥当な文字だけ許可(英数字・ドット・ハイフン)。
-//   if (!/^[A-Za-z0-9.-]+$/.test(host)) return c.json({ ok:false, error:'invalid host' }, 400);
-//   // 2) シェルを使わず引数配列で渡す(; や && がメタ文字として解釈されない)。
-//   const { stdout } = await execFileAsync('ping', ['-c', '1', host]);
-
-// 管理者向け ping 診断。★ 入力を ping コマンド文字列へ連結して exec(脆弱)。
-//   host = 127.0.0.1; echo PWNED  →  ping のあとに echo も実行される。
+// 管理者向け ping 診断。
+//   脆弱: 入力を ping コマンド文字列へ連結して exec(シェル経由)。
+//     host = 127.0.0.1; echo PWNED  →  ping のあとに echo も実行される。
+//   対策: (1) ホスト名として妥当な文字だけ許可 (2) シェルを介さず execFile で引数配列として渡す。
 app.get('/admin/net/ping', async (c) => {
   const host = c.req.query('host') ?? '127.0.0.1';
-  const cmd = `ping -c 1 ${host}`;
+  const mode = modeOf(c);
+
+  let cmd: string;
+  let run: () => Promise<{ stdout: string; stderr: string }>;
+  if (mode === 'defended') {
+    // ✅ 対策1: 英数字・ドット・ハイフン以外を含む入力は拒否(許可リスト方式の入力検証)。
+    if (!/^[A-Za-z0-9.-]+$/.test(host)) {
+      return c.json({ ok: false, mode, error: 'invalid host' }, 400);
+    }
+    // ✅ 対策2: シェルを使わず引数配列で渡す。; や && はメタ文字として解釈されない。
+    cmd = `execFile('ping', ['-c', '1', ${JSON.stringify(host)}])`;
+    run = () => execFileAsync('ping', ['-c', '1', host], { timeout: 5000 });
+  } else {
+    // ★ 脆弱: シェル経由で実行するため ; && | ` などのメタ文字が効いてしまう。
+    cmd = `ping -c 1 ${host}`;
+    run = () => execAsync(cmd, { timeout: 5000 });
+  }
+
   try {
-    // シェル経由で実行するため ; && | ` などのメタ文字が効いてしまう。
-    const { stdout, stderr } = await execAsync(cmd, { timeout: 5000 });
-    return c.json({ ok: true, cmd, output: stdout + stderr });
+    const { stdout, stderr } = await run();
+    return c.json({ ok: true, mode, cmd, output: stdout + stderr });
   } catch (e) {
     // 実行自体が失敗(ping 不在や非ゼロ終了)でも、連結したコマンドの出力は得られる。
     const err = e as { stdout?: string; stderr?: string; message?: string };
     return c.json({
       ok: false,
+      mode,
       cmd,
       output: (err.stdout ?? '') + (err.stderr ?? ''),
       error: err.message ?? String(e),
@@ -416,27 +445,32 @@ app.get('/admin/net/ping', async (c) => {
 // 公開してよい添付ファイルの置き場(ここ「だけ」を見せるつもりの設計)。
 const UPLOAD_DIR = join(import.meta.dirname, 'uploads');
 
-// --- 対策(公開ディレクトリ内に収まっているか検証)。これなら外へ出られない ---
-//   import { resolve, relative, isAbsolute } from 'node:path';
-//   const full = resolve(UPLOAD_DIR, name);
-//   const rel = relative(UPLOAD_DIR, full);
-//   if (rel.startsWith('..') || isAbsolute(rel)) {
-//     return c.json({ ok:false, error:'invalid path' }, 400);  // 公開範囲の外は拒否
-//   }
-//   // (あわせて name から '..' やパス区切りを弾くと多層防御になる)
-
-// 添付ファイル取得。★ 入力ファイル名を検証せず join するだけ(脆弱)。
-//   name = welcome.txt          → 正常に添付を返す
-//   name = ../../../../etc/passwd → 公開ディレクトリ外まで読めてしまう
+// 添付ファイル取得。
+//   脆弱: 入力ファイル名を検証せず join するだけ。
+//     name = welcome.txt            → 正常に添付を返す
+//     name = ../../../../etc/passwd → 公開ディレクトリ外まで読めてしまう
+//   対策: resolve 後のパスが公開ディレクトリ内に収まっているかを検証し、外なら拒否。
+//     (あわせて name から '..' やパス区切りを弾くと多層防御になる)
 app.get('/sns/files', async (c) => {
   const name = c.req.query('name') ?? 'welcome.txt';
-  // 脆弱: resolve 後の範囲チェックをしていないため `../` で外へ出られる。
-  const target = join(UPLOAD_DIR, name);
+  const mode = modeOf(c);
+  let target: string;
+  if (mode === 'defended') {
+    // ✅ 対策: 正規化した最終パスが UPLOAD_DIR の内側かを確認する。
+    target = resolve(UPLOAD_DIR, name);
+    const rel = relative(UPLOAD_DIR, target);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+      return c.json({ ok: false, mode, requested: name, error: 'invalid path' }, 400);
+    }
+  } else {
+    // ★ 脆弱: 範囲チェックをしていないため `../` で外へ出られる。
+    target = join(UPLOAD_DIR, name);
+  }
   try {
     const content = await readFile(target, 'utf8');
     return c.text(content);
   } catch {
-    return c.json({ ok: false, requested: name, resolved: target, error: 'not found' }, 404);
+    return c.json({ ok: false, mode, requested: name, resolved: target, error: 'not found' }, 404);
   }
 });
 
@@ -459,28 +493,38 @@ app.get('/sns/files', async (c) => {
 // ログイン中ユーザーのアカウント状態(DB代わりのメモリ)。
 let accountEmail = 'you@tsunagu.example';
 
-// --- 対策(CSRFトークン / Origin 検査)。これなら他サイトからの偽造リクエストを弾ける ---
-//   ※ この最小ラボはセッションや同期トークンの発行を実装していない。そのため
-//     下記 1) をそのまま有効化しても、トークン未発行どうしの `undefined !== undefined`
-//     が成立せず「fail open(素通り)」になり、攻撃が止まらない点に注意。
-//     1) を使うなら、まずフォーム表示時にトークンを発行・保存し、未提示は必ず拒否
-//     (fail closed)する必要がある。このラボで今すぐ効くのは 2) の Origin 検査。
-//   // 1) フォーム表示時に発行した同期トークンを照合する(未提示・不一致は必ず拒否)。
-//   const token = (await c.req.parseBody()).csrf_token;
-//   if (!token || token !== c.get('sessionCsrfToken')) return c.json({ ok:false, error:'bad csrf token' }, 403);
-//   // 2) もしくは Origin/Referer が自分のサイトかを検査する(このラボではこれが即有効)。
-//   const origin = c.req.header('origin');
-//   if (origin && new URL(origin).host !== 'localhost:8080') return c.json({ ok:false }, 403);
-//   // 3) 併せて Cookie を SameSite=Lax/Strict にすると多層防御になる。
+// 対策の選択肢:
+//   1) フォーム表示時に発行した同期トークンを照合する(未提示・不一致は必ず拒否)。
+//      ※ この最小ラボはセッション/トークン発行を実装していないので、ここでは採用しない。
+//        未発行どうしの `undefined !== undefined` で素通り(fail open)にならないよう注意。
+//   2) Origin(無ければ Referer)が自分のサイトかを検査する。← `?defense=1` で有効になるのはこれ。
+//   3) 併せて Cookie を SameSite=Lax/Strict にすると多層防御になる。
+const SELF_HOSTS = new Set(['localhost:8080', '127.0.0.1:8080']);
+const isSameOriginRequest = (c: Context): boolean => {
+  const src = c.req.header('origin') ?? c.req.header('referer');
+  // 送信元が分からないリクエストは拒否する(fail closed)。
+  if (!src || src === 'null') return false;
+  try {
+    return SELF_HOSTS.has(new URL(src).host);
+  } catch {
+    return false;
+  }
+};
 
 // アカウント設定の表示(現在のメールアドレス)。
 app.get('/account', (c) => {
   return c.json({ loggedInAs: 'you', email: accountEmail });
 });
 
-// メールアドレス変更。★ CSRF トークンも Origin 検査も無い(脆弱)。
-//   他サイトの自動送信フォームからでも、ログイン中の本人として変更が通ってしまう。
+// メールアドレス変更。
+//   脆弱: CSRF トークンも Origin 検査も無い。他サイトの自動送信フォームからでも
+//     ログイン中の本人として変更が通ってしまう。
+//   対策: Origin/Referer が自サイトでなければ 403 で拒否。
 app.post('/account/email', async (c) => {
+  // ★ 脆弱: 既定では送信元を確認しない / ✅ 対策: 他サイト発のリクエストを拒否
+  if (isDefended(c) && !isSameOriginRequest(c)) {
+    return c.json({ ok: false, mode: 'defended', error: 'cross-site request rejected' }, 403);
+  }
   const body = await c.req.parseBody();
   const email = typeof body.email === 'string' ? body.email : '';
   accountEmail = email;
@@ -527,11 +571,6 @@ const messages: DirectMessage[] = [
 const currentUser = (c: { req: { header: (k: string) => string | undefined } }): string =>
   c.req.header('x-user') ?? 'you';
 
-// --- 対策(所有者チェック)。これなら他人のDMは読めない ---
-//   if (msg.owner !== currentUser(c)) {
-//     return c.json({ ok: false, error: 'forbidden' }, 403);  // 本人のもの以外は拒否
-//   }
-
 // 自分のDM一覧。こちらは owner で正しく絞っている(対比用)。
 app.get('/api/messages', (c) => {
   const me = currentUser(c);
@@ -539,12 +578,18 @@ app.get('/api/messages', (c) => {
   return c.json({ ok: true, user: me, messages: mine });
 });
 
-// DM 個別取得。★ owner 照合を忘れている(認可制御の欠落 = IDOR/BOLA)。
-//   X-User: you のまま id=2,3 を叩くと、他人の非公開DMが読めてしまう。
+// DM 個別取得。
+//   脆弱: owner 照合を忘れている(認可制御の欠落 = IDOR/BOLA)。
+//     X-User: you のまま id=2,3 を叩くと、他人の非公開DMが読めてしまう。
+//   対策: 取得したDMの owner がリクエスト元ユーザーと一致するかを毎回サーバ側で確認する。
 app.get('/api/messages/:id', (c) => {
   const id = Number(c.req.param('id'));
+  const mode = modeOf(c);
   const msg = messages.find((m) => m.id === id);
-  if (!msg) return c.json({ ok: false, error: 'not found' }, 404);
-  // 脆弱: ここで msg.owner === currentUser(c) を確認していない。
-  return c.json({ ok: true, requestedBy: currentUser(c), message: msg });
+  if (!msg) return c.json({ ok: false, mode, error: 'not found' }, 404);
+  // ★ 脆弱: 既定では所有者を確認しない / ✅ 対策: 本人のもの以外は拒否
+  if (mode === 'defended' && msg.owner !== currentUser(c)) {
+    return c.json({ ok: false, mode, error: 'forbidden' }, 403);
+  }
+  return c.json({ ok: true, mode, requestedBy: currentUser(c), message: msg });
 });

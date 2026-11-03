@@ -17,6 +17,7 @@
     .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
     .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
     .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
 
     .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px auto; max-width:600px; text-align:left; }
     .intent { background:#1e1e1e; border:1px solid #ff5252; }
@@ -33,10 +34,11 @@
   <div class="panel">
     <h2>🔎 学習用コントロール</h2>
     <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
-    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策を有効化（Origin 検査）</label>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。オンにして「もう一度攻撃」すると 403 で弾かれます。</div>
     <div class="hint">このページを開いた瞬間、裏で勝手に POST が送られます。</div>
     <hr>
-    状態: <span class="status">脆弱（CSRF対策なし）</span>
+    状態: <span class="status vuln" id="status">脆弱（CSRF対策なし）</span>
     <hr>
     <label><input type="checkbox" id="armed" checked> ページを開いたら自動で攻撃する</label>
   </div>
@@ -82,23 +84,39 @@
     const log = document.getElementById('log');
 
     intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
-    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+    const statusEl = document.getElementById('status');
+    // 対策トグル: 標的へのリクエストに ?defense=1 を付けるかどうか。
+    const q = (url) => {
+      const u = new URL(url);
+      if (defense.checked) u.searchParams.set('defense', '1');
+      return u.toString();
+    };
+    defense.addEventListener('change', () => {
+      const on = defense.checked;
+      document.body.classList.toggle('show-defense', on);
+      statusEl.textContent = on ? '対策済み（Origin 検査）' : '脆弱（CSRF対策なし）';
+      statusEl.className = on ? 'status safe' : 'status vuln';
+    });
 
     async function attack() {
-      log.textContent = 'POST http://localhost:8080/account/email  (email=attacker@evil.example)\n送信中…';
+      const target = q('http://localhost:8080/account/email');
+      log.textContent = 'POST ' + target + '  (email=attacker@evil.example)\n送信中…';
       try {
         // 実際の CSRF と同じく、トークンを付けずに本人のセッションで状態を変える。
-        await fetch('http://localhost:8080/account/email', {
+        // ブラウザは他サイトからの POST に Origin: http://localhost:9090 を自動で付ける。
+        const post = await fetch(target, {
           method: 'POST',
           headers: { 'content-type': 'application/x-www-form-urlencoded' },
           body: 'email=attacker@evil.example',
         });
         const res = await fetch('http://localhost:8080/account');
         const json = await res.json();
-        log.textContent =
-          '✅ 攻撃成功: 登録メールが書き換わりました。\n\n' +
-          'GET /account → ' + JSON.stringify(json) + '\n\n' +
-          '※ 対策(CSRFトークン等)があれば、この POST は 403 で弾かれます。';
+        log.textContent = post.status === 403
+          ? '⛔ 攻撃失敗: POST は 403 で拒否されました(Origin が標的と異なるため)。\n\n' +
+            'GET /account → ' + JSON.stringify(json)
+          : '✅ 攻撃成功: 登録メールが書き換わりました。\n\n' +
+            'GET /account → ' + JSON.stringify(json) + '\n\n' +
+            '※ 対策(Origin 検査等)があれば、この POST は 403 で弾かれます。';
       } catch (e) {
         log.textContent =
           'リクエスト失敗。標的(localhost:8080)が起動しているか確認してください。\n' + e;

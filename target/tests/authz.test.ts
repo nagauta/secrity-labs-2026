@@ -81,3 +81,18 @@ describe('認可制御の欠落 (/api/messages/:id)', () => {
     );
   });
 });
+
+describe('認可制御 - 対策済み(?defense=1, 所有者チェック)', () => {
+  it('自分のDMは対策済みでも取得できる', async () => {
+    const res = await asYou('/api/messages/1?defense=1');
+    expect(res.status).toBe(200);
+  });
+
+  it.each([2, 3])('他人のDM(id=%i)は 403 で読めない', async (id) => {
+    const res = await asYou(`/api/messages/${id}?defense=1`);
+    expect(res.status).toBe(403);
+    const text = await res.text();
+    expect(text).not.toContain('kagi-7788');
+    expect(text).not.toContain('Adm!n-tmp-0001');
+  });
+});

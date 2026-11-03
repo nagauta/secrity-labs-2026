@@ -22,6 +22,7 @@
     .panel .hint { color:#888; font-size:11px; margin-top:4px; line-height:1.4; }
     .panel hr { border:0; border-top:1px solid #eee; margin:10px 0; }
     .status { font-weight:bold; border-radius:6px; padding:2px 8px; font-size:12px; background:#ffe5e5; color:#c0392b; }
+    .status.safe { background:#e3f6e8; color:#1e7e34; }
 
     .intent, .defense { display:none; border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.7; margin:16px 0; }
     .intent { background:#1e1e1e; border:1px solid #ff5252; }
@@ -38,10 +39,11 @@
   <div class="panel">
     <h2>🔎 学習用コントロール</h2>
     <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
-    <label><input type="checkbox" id="toggleDefense"> 🛡 対策の解説を表示</label>
+    <label><input type="checkbox" id="toggleDefense"> 🛡 対策を有効化（所有者チェック）</label>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。他人のDMは 403 で読めなくなります。</div>
     <div class="hint">連番IDを変えるだけで他人のDMが読めます。</div>
     <hr>
-    状態: <span class="status">脆弱（所有者チェック無し）</span>
+    状態: <span class="status vuln" id="status">脆弱（所有者チェック無し）</span>
   </div>
 
   <div class="wrap">
@@ -90,7 +92,19 @@
     const intent = document.getElementById('toggleIntent');
     const defense = document.getElementById('toggleDefense');
     intent.addEventListener('change', () => document.body.classList.toggle('show-intent', intent.checked));
-    defense.addEventListener('change', () => document.body.classList.toggle('show-defense', defense.checked));
+    const statusEl = document.getElementById('status');
+    // 対策トグル: 標的へのリクエストに ?defense=1 を付けるかどうか。
+    const q = (url) => {
+      const u = new URL(url);
+      if (defense.checked) u.searchParams.set('defense', '1');
+      return u.toString();
+    };
+    defense.addEventListener('change', () => {
+      const on = defense.checked;
+      document.body.classList.toggle('show-defense', on);
+      statusEl.textContent = on ? '対策済み（所有者チェック）' : '脆弱（所有者チェック無し）';
+      statusEl.className = on ? 'status safe' : 'status vuln';
+    });
 
     const base = 'http://localhost:8080/api/messages';
     const opts = { headers: { 'X-User': 'you' } };
@@ -100,11 +114,12 @@
       one.hidden = false;
       const id = document.getElementById('id').value;
       try {
-        const res = await fetch(base + '/' + encodeURIComponent(id), opts);
+        const res = await fetch(q(base + '/' + encodeURIComponent(id)), opts);
         const json = await res.json();
         const m = json.message;
         const mine = m && m.owner === 'you';
-        one.innerHTML = 'GET /api/messages/' + id + '  (X-User: you)\n\n' +
+        one.innerHTML = 'GET /api/messages/' + id + (defense.checked ? '?defense=1' : '') +
+          '  (X-User: you)  → ' + res.status + '\n\n' +
           (m ? (mine ? '' : '<span class="leak">⚠ 他人(' + m.owner + ')のDMが読めた！</span>\n') +
                JSON.stringify(json, null, 2) : JSON.stringify(json));
       } catch (e) { one.textContent = '失敗: ' + e; }
@@ -117,7 +132,8 @@
       const lines = [];
       for (let id = 1; id <= 8; id++) {
         try {
-          const res = await fetch(base + '/' + id, opts);
+          const res = await fetch(q(base + '/' + id), opts);
+          if (res.status === 403) { lines.push(id + ': ⛔ 403 forbidden（他人のDMは拒否）'); continue; }
           if (res.status !== 200) { lines.push(id + ': (なし)'); continue; }
           const { message: m } = await res.json();
           const tag = m.owner === 'you' ? '自分' : '⚠他人(' + m.owner + ')';

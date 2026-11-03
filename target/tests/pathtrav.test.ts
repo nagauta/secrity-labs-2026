@@ -41,3 +41,24 @@ describe('パストラバーサル (/sns/files)', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('パストラバーサル - 対策済み(?defense=1)', () => {
+  it('公開ディレクトリ内の添付は対策済みでも取得できる', async () => {
+    const res = await app.request('/sns/files?defense=1&name=welcome.txt');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('つなぐへようこそ');
+  });
+
+  it.each([
+    `${'../'.repeat(12)}etc/passwd`,
+    '../package.json',
+    '/etc/passwd',
+    'sub/../../package.json',
+  ])('%s は公開範囲外として 400 で拒否される', async (name) => {
+    const res = await app.request(`/sns/files?defense=1&name=${encodeURIComponent(name)}`);
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { mode: string; error: string };
+    expect(json.mode).toBe('defended');
+    expect(json.error).toBe('invalid path');
+  });
+});

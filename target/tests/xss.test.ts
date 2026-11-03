@@ -66,3 +66,29 @@ describe('XSS - 蓄積型 (/sns/users/:name)', () => {
     expect(html).toContain('はじめまして');
   });
 });
+
+describe('XSS - 対策済み(?defense=1)', () => {
+  it('反射型: ?q はエスケープされ、生の <script> は出ない', async () => {
+    const payload = '<script>alert(1)</script>';
+    const res = await app.request(`/sns/search?defense=1&q=${encodeURIComponent(payload)}`);
+    const html = await res.text();
+    expect(html).not.toContain(payload);
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('反射型: 属性値から抜け出す " も無害化される', async () => {
+    const payload = '"><img src=x onerror=alert(1)>';
+    const res = await app.request(`/sns/search?defense=1&q=${encodeURIComponent(payload)}`);
+    const html = await res.text();
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&quot;&gt;&lt;img');
+  });
+
+  it('蓄積型: サミーのペイロードは文字列として表示されるだけ', async () => {
+    await app.request('/sns/profile/reset', { method: 'POST' });
+    const res = await app.request('/sns/users/samy?defense=1');
+    const html = await res.text();
+    expect(html).not.toContain('<img src=x onerror=');
+    expect(html).toContain('&lt;img src=x onerror=');
+  });
+});

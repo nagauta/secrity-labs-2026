@@ -46,7 +46,7 @@
       <input type="checkbox" id="toggleDefense">
       🛡 対策を有効化（出力エスケープ）
     </label>
-    <div class="hint">標的が <code>escapeHtml()</code> で出力した状態を疑似再現します。script が文字列として表示され、実行されません。</div>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、<code>escapeHtml()</code> で出力させます。script が文字列として表示され、実行されません。</div>
     <hr>
     状態: <span id="statusBadge" class="status vuln">脆弱（スクリプト実行）</span>
   </div>
@@ -108,28 +108,21 @@
       document.body.classList.toggle('show-intent', intent.checked);
     });
 
+    const withDefense = (url, on) => {
+      const u = new URL(url);
+      if (on) u.searchParams.set('defense', '1');
+      else u.searchParams.delete('defense');
+      return u.toString();
+    };
+
     defense.addEventListener('change', () => {
       const on = defense.checked;
       document.body.classList.toggle('defended', on);
       badge.textContent = on ? '対策済み（文字列として表示）' : '脆弱（スクリプト実行）';
       badge.className = 'status ' + (on ? 'safe' : 'vuln');
-      // 対策ONの疑似再現: iframe を外し、エスケープ済みで「無害化された」見た目を示す。
-      if (on) {
-        view.removeAttribute('src');
-        view.srcdoc =
-          '<body style="font-family:sans-serif;padding:16px;color:#333">' +
-          '<h3>サミー (@samy)</h3><h4>ひとこと</h4>' +
-          '<div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:10px;padding:14px">' +
-          'みんなよろしく！&lt;img src=x onerror=...&gt;（エスケープ済み＝ただの文字。実行されない）' +
-          '</div></body>';
-        reflectLink.style.pointerEvents = 'none';
-        reflectLink.style.opacity = '.5';
-      } else {
-        view.removeAttribute('srcdoc');
-        view.src = 'http://localhost:8080/sns/users/samy';
-        reflectLink.style.pointerEvents = '';
-        reflectLink.style.opacity = '';
-      }
+      // 標的へのURLに ?defense=1 を付け外しする(対策済み実装 = 出力エスケープで処理される)。
+      view.src = withDefense(view.src, on);
+      reflectLink.href = withDefense(reflectLink.href, on);
     });
   </script>
 </body>

@@ -9,16 +9,39 @@
 services:
   target:
     build: ./target
+    # 開発時は tsx watch で起動し、ファイル変更で自動再起動する (ホットリロード)。
+    command: ["npx", "tsx", "watch", "server.ts"]
     # 127.0.0.1 限定公開。"8080:8080" だと全NIFに晒れるので必ず 127.0.0.1 を付ける。
     ports:
       - "127.0.0.1:8080:8080"
+    # `docker compose up --watch` でホスト側の変更をコンテナへ同期する。
+    develop:
+      watch:
+        - action: sync
+          path: ./target
+          target: /app
+          ignore:
+            - node_modules/
+            - tests/
+        - action: rebuild
+          path: ./target/package.json
     networks:
       - labnet
 
   attacker:
     build: ./attacker
+    command: ["npx", "tsx", "watch", "serve.ts"]
     ports:
       - "127.0.0.1:9090:9090"
+    develop:
+      watch:
+        - action: sync
+          path: ./attacker
+          target: /app
+          ignore:
+            - node_modules/
+        - action: rebuild
+          path: ./attacker/package.json
     networks:
       - labnet
 
