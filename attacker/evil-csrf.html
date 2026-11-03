@@ -35,12 +35,13 @@
     <h2>🔎 学習用コントロール</h2>
     <label><input type="checkbox" id="toggleIntent"> 攻撃者の狙い(シナリオ)を表示</label>
     <label><input type="checkbox" id="toggleDefense"> 🛡 対策を有効化（Origin 検査）</label>
-    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。オンにして「もう一度攻撃」すると 403 で弾かれます。</div>
+    <div class="hint">標的へのリクエストに <code>?defense=1</code> を付け、対策済み実装で処理させます。オンにして「もう一度攻撃」を押すと 403 で弾かれます。</div>
     <div class="hint">このページを開いた瞬間、裏で勝手に POST が送られます。</div>
     <hr>
     状態: <span class="status vuln" id="status">脆弱（CSRF対策なし）</span>
     <hr>
     <label><input type="checkbox" id="armed" checked> ページを開いたら自動で攻撃する</label>
+    <button type="button" id="again" style="margin-top:6px">↻ メールを戻してもう一度攻撃</button>
   </div>
 
   <h1>🎁 おめでとうございます！</h1>
@@ -125,6 +126,11 @@
 
     // ページを開いた瞬間に自動実行(本物の CSRF と同じ挙動)。
     window.addEventListener('load', () => { if (armed.checked) attack(); });
+    // 対策の有無を切り替えて撃ち比べる用: 標的のメールを既定に戻してから再攻撃する。
+    document.getElementById('again').addEventListener('click', async () => {
+      await fetch('http://localhost:8080/account/reset', { method: 'POST' }).catch(() => {});
+      attack();
+    });
   </script>
 </body>
 </html>
